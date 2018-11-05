@@ -13,7 +13,18 @@ that can be found at: http://goo.gl/cJEY1
 import math
 import random
 
-# Declaring the Customer class:
+# Declaring the Vehicle class:     
+class Vehicle:
+   def __init__(self, number=None):
+      self.number = None
+      if number is not None:
+          self.number = number
+      else:
+          self.number = 2  
+   def getNumber(self):
+      return self.number
+                
+# Declaring the Customer class:     
 class Customer:
    def __init__(self, x=None, y=None): # class constructor
       self.x = None
@@ -45,7 +56,7 @@ class Customer:
 # Class for Customer data handling:
 class RouteManager:
    destinationCustomers = []
-   
+
    def addCustomer(self, customer):
       self.destinationCustomers.append(customer)
    
@@ -84,12 +95,13 @@ class Route:
       return geneString
    
    def generateIndividual(self):
+      # Loop through all vehicles and randomly assign them to customers
       for customerIndex in range(0, self.routemanager.numberOfCustomers()):
-         self.setCustomer(customerIndex, self.routemanager.getCustomer(customerIndex))
-      random.shuffle(self.route)
+         self.setCustomer(customerIndex, random.randint(1, vehicles.number))   
    
    def getCustomer(self, routePosition):
-      return self.route[routePosition]
+      # return self.route[routePosition]
+      return RouteManager.destinationCustomers[routePosition]
    
    def setCustomer(self, routePosition, customer):
       self.route[routePosition] = customer
@@ -107,6 +119,8 @@ class Route:
          for customerIndex in range(0, self.routeSize()):
             fromCustomer = self.getCustomer(customerIndex)
             destinationCustomer = None
+            # Check we're not on our tour's last city, if we are set our 
+            # tour's final destination city to our starting city
             if customerIndex+1 < self.routeSize():
                destinationCustomer = self.getCustomer(customerIndex+1)
             else:
@@ -130,6 +144,7 @@ class Population:
       
       if initialise:
          for i in range(0, populationSize):
+    #    Modifications here >>>> Marwan
             newRoute = Route(routemanager)
             newRoute.generateIndividual()
             self.saveRoute(i, newRoute)
@@ -139,9 +154,9 @@ class Population:
    
    def __getitem__(self, index):
       return self.routes[index]
-   
+
    def saveRoute(self, index, route):
-      self.routes[index] = route
+      self.routes[index] = route # route.route
    
    def getRoute(self, index):
       return self.routes[index]
@@ -157,7 +172,6 @@ class Population:
       return len(self.routes)
 
 # Declaring GA class:
-
 class GA:
    def __init__(self, routemanager):
       self.routemanager = routemanager
@@ -206,7 +220,6 @@ class GA:
       return child
    
    # Mutate a route using 2-point swap mutation:
-
    def mutate(self, route):
       for routePos1 in range(0, route.routeSize()):
          if random.random() < self.mutationRate:
@@ -219,7 +232,6 @@ class GA:
             route.setCustomer(routePos1, customer2)
 
    # Select candidate route for crossover:
-
    def tournamentSelection(self, pop):
       tournament = Population(self.routemanager, self.tournamentSize, False)
       for i in range(0, self.tournamentSize):
@@ -228,11 +240,10 @@ class GA:
       fittest = tournament.getFittest()
       return fittest
 
-
-
 if __name__ == '__main__':
    
    routemanager = RouteManager()
+   vehicles = Vehicle(4)
    
    # Create and add our customers
    customer1 = Customer(60, 200)
