@@ -57,6 +57,7 @@ class Customer:
 class RouteManager:
    destinationCustomers = []
 
+      self.destinationCustomers = []
    def addCustomer(self, customer):
       self.destinationCustomers.append(customer)
    
