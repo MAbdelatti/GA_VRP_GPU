@@ -23,7 +23,7 @@ class Vehicle:
           self.number = 2  
    def getNumber(self):
       return self.number
-                
+
 # Declaring the Customer class:     
 class Customer:
    def __init__(self, x=None, y=None): # class constructor
@@ -51,13 +51,13 @@ class Customer:
       return distance
    
    def __repr__(self): # Returns a string version of the object
-      return str(self.getX()) + ", " + str(self.getY())
+      return str(self.getX()) + ", " + str(self.getY()) 
 
 # Class for Customer data handling:
-class RouteManager:
-   destinationCustomers = []
-
+class CustomerManager:
+   def __init__(self):
       self.destinationCustomers = []
+
    def addCustomer(self, customer):
       self.destinationCustomers.append(customer)
    
@@ -67,45 +67,63 @@ class RouteManager:
    def numberOfCustomers(self):
       return len(self.destinationCustomers)
 
+# Class for Route data handling:
+class RouteManager:
+   def __init__(self):
+      self.routes = []
+
+   def addRoute(self, route):
+      self.routes.append(route)
+   
+   def getRoute(self, index):
+      return self.routes[index]
+   
+   def numberOfRoutes(self):
+      return len(self.routes)
+
 # Declaring the Route class:
 class Route:
-   def __init__(self, routemanager, route=None):
+   def __init__(self, routemanager, customermanager, route=None):
       self.routemanager = routemanager
+      self.customermanager = customermanager
       self.route = []
       self.fitness = 0.0
       self.distance = 0
       if route is not None:
          self.route = route
       else:
-         for i in range(0, self.routemanager.numberOfCustomers()):
+         for i in range(0, self.customermanager.numberOfCustomers()):
             self.route.append(None)
    
-   def __len__(self):
+   def __len__(self):                   # Get the length of the route chromosome
       return len(self.route)
    
-   def __getitem__(self, index):
+   def __getitem__(self, index):        # Get an item in the route chromosome
       return self.route[index]
    
-   def __setitem__(self, key, value):
+   def __setitem__(self, key, value):   # Set an item in the route chromosome
       self.route[key] = value
    
-   def __repr__(self):
+   def __repr__(self):                  # Show the route chromosome
       geneString = "|"
       for i in range(0, self.routeSize()):
-         geneString += str(self.getCustomer(i)) + "|"
+         geneString += str(self.routemanager.getRoute(i)) + "|"
       return geneString
    
-   def generateIndividual(self):
+   def generateIndividual(self, vehicles):        # Generate a route chromosome
       # Loop through all vehicles and randomly assign them to customers
-      for customerIndex in range(0, self.routemanager.numberOfCustomers()):
-         self.setCustomer(customerIndex, random.randint(1, vehicles.number))   
+        
+      for routeIndex in range(0, self.customermanager.numberOfCustomers()): 
+         self.setRoute(routeIndex, random.randint(1, vehicles.number))   
    
-   def getCustomer(self, routePosition):
-      # return self.route[routePosition]
-      return RouteManager.destinationCustomers[routePosition]
-   
-   def setCustomer(self, routePosition, customer):
-      self.route[routePosition] = customer
+   def getCustomer(self, routePosition):# Get a customer 
+      return self.customermanager.destinationCustomers[routePosition]
+ 
+   def getRoute(self, routePosition):   # Get a route
+      return self.routemanager.routes.route[routePosition]
+    
+   def setRoute(self, routePosition, route):
+      self.route[routePosition] = route
       self.fitness = 0.0
       self.distance = 0
    
@@ -138,17 +156,18 @@ class Route:
 
 # Declaring the Population class:
 class Population:
-   def __init__(self, routemanager, populationSize, initialise):
+   def __init__(self, routemanager, customermanager,
+                vehicles, populationSize, initialize):
       self.routes = []
       for i in range(0, populationSize):
          self.routes.append(None)
-      
-      if initialise:
+         
+      if initialize:
          for i in range(0, populationSize):
-    #    Modifications here >>>> Marwan
-            newRoute = Route(routemanager)
-            newRoute.generateIndividual()
+            newRoute = Route(routemanager, customermanager)
+            newRoute.generateIndividual(vehicles)
             self.saveRoute(i, newRoute)
+      print('')
       
    def __setitem__(self, key, value):
       self.routes[key] = value
@@ -157,7 +176,7 @@ class Population:
       return self.routes[index]
 
    def saveRoute(self, index, route):
-      self.routes[index] = route # route.route
+      self.routes[index] = route
    
    def getRoute(self, index):
       return self.routes[index]
@@ -174,14 +193,16 @@ class Population:
 
 # Declaring GA class:
 class GA:
-   def __init__(self, routemanager):
+   def __init__(self, routemanager, customermanager, vehicles):
       self.routemanager = routemanager
+      self.customermanager = customermanager
       self.mutationRate = 0.015
       self.tournamentSize = 5
       self.elitism = True
    
-   def evolvePopulation(self, pop):
-      newPopulation = Population(self.routemanager, pop.populationSize(), False)
+   def evolvePopulation(self, vehicles, pop):
+      newPopulation = Population(self.routemanager, self.customermanager,
+                                 vehicles, pop.populationSize(), False)
       elitismOffset = 0
       if self.elitism:
          newPopulation.saveRoute(0, pop.getFittest())
@@ -199,23 +220,23 @@ class GA:
       return newPopulation
    
    def crossover(self, parent1, parent2):
-      child = Route(self.routemanager)
+      child = Route(self.routemanager, self.customermanager)
       
       startPos = int(random.random() * parent1.routeSize())
       endPos = int(random.random() * parent1.routeSize())
       
       for i in range(0, child.routeSize()):
          if startPos < endPos and i > startPos and i < endPos:
-            child.setCustomer(i, parent1.getCustomer(i))
+            child.setRoute(i, parent1.getCustomer(i))
          elif startPos > endPos:
             if not (i < startPos and i > endPos):
-               child.setCustomer(i, parent1.getCustomer(i))
+               child.setRoute(i, parent1.getCustomer(i))
       
       for i in range(0, parent2.routeSize()):
          if not child.containsCustomer(parent2.getCustomer(i)):
             for ii in range(0, child.routeSize()):
                if child.getCustomer(ii) == None:
-                  child.setCustomer(ii, parent2.getCustomer(i))
+                  child.setRoute(ii, parent2.getCustomer(i))
                   break
       
       return child
@@ -226,15 +247,16 @@ class GA:
          if random.random() < self.mutationRate:
             routePos2 = int(route.routeSize() * random.random())
             
-            customer1 = route.getCustomer(routePos1)
-            customer2 = route.getCustomer(routePos2)
+            route1 = route.getRoute(routePos1)
+            route2 = route.getRoute(routePos2)
             
-            route.setCustomer(routePos2, customer1)
-            route.setCustomer(routePos1, customer2)
+            route.setRoute(routePos2, route1)
+            route.setRoute(routePos1, route2)
 
    # Select candidate route for crossover:
    def tournamentSelection(self, pop):
-      tournament = Population(self.routemanager, self.tournamentSize, False)
+      tournament = Population(self.routemanager, self.customermanager, vehicles, 
+                              self.tournamentSize, False)
       for i in range(0, self.tournamentSize):
          randomId = int(random.random() * pop.populationSize())
          tournament.saveRoute(i, pop.getRoute(randomId))
@@ -242,64 +264,65 @@ class GA:
       return fittest
 
 if __name__ == '__main__':
-   
-   routemanager = RouteManager()
-   vehicles = Vehicle(4)
-   
-   # Create and add our customers
-   customer1 = Customer(60, 200)
-   routemanager.addCustomer(customer1)
-   customer2 = Customer(180, 200)
-   routemanager.addCustomer(customer2)
-   customer3 = Customer(80, 180)
-   routemanager.addCustomer(customer3)
-   customer4 = Customer(140, 180)
-   routemanager.addCustomer(customer4)
-   customer5 = Customer(20, 160)
-   routemanager.addCustomer(customer5)
-   customer6 = Customer(100, 160)
-   routemanager.addCustomer(customer6)
-   customer7 = Customer(200, 160)
-   routemanager.addCustomer(customer7)
-   customer8 = Customer(140, 140)
-   routemanager.addCustomer(customer8)
-   customer9 = Customer(40, 120)
-   routemanager.addCustomer(customer9)
-   customer10 = Customer(100, 120)
-   routemanager.addCustomer(customer10)
-   customer11 = Customer(180, 100)
-   routemanager.addCustomer(customer11)
-   customer12 = Customer(60, 80)
-   routemanager.addCustomer(customer12)
-   customer13 = Customer(120, 80)
-   routemanager.addCustomer(customer13)
-   customer14 = Customer(180, 60)
-   routemanager.addCustomer(customer14)
-   customer15 = Customer(20, 40)
-   routemanager.addCustomer(customer15)
-   customer16 = Customer(100, 40)
-   routemanager.addCustomer(customer16)
-   customer17 = Customer(200, 40)
-   routemanager.addCustomer(customer17)
-   customer18 = Customer(20, 20)
-   routemanager.addCustomer(customer18)
-   customer19 = Customer(60, 20)
-   routemanager.addCustomer(customer19)
-   customer20 = Customer(160, 20)
-   routemanager.addCustomer(customer20)
-   
-   # Initialize population with 50 individuals
-   pop = Population(routemanager, 50, True)
-   print("Initial distance: " + str(pop.getFittest().getDistance()))
-   
-   # Evolve population for 500 generations
-   ga = GA(routemanager)
-   pop = ga.evolvePopulation(pop)
-   for i in range(0, 500):
-      pop = ga.evolvePopulation(pop)
-   
-   # Print final results
-   print("Finished")
-   print ("Final distance: " + str(pop.getFittest().getDistance()))
-   print ("Solution:")
-   print (pop.getFittest())
+
+      routemanager = RouteManager()
+      customermanager = CustomerManager()
+      vehicles = Vehicle(4)
+
+      # Create and add our customers
+      customer1 = Customer(60, 200)
+      customermanager.addCustomer(customer1)
+      customer2 = Customer(180, 200)
+      customermanager.addCustomer(customer2)
+      customer3 = Customer(80, 180)
+      customermanager.addCustomer(customer3)
+      customer4 = Customer(140, 180)
+      customermanager.addCustomer(customer4)
+      customer5 = Customer(20, 160)
+      customermanager.addCustomer(customer5)
+      customer6 = Customer(100, 160)
+      customermanager.addCustomer(customer6)
+      customer7 = Customer(200, 160)
+      customermanager.addCustomer(customer7)
+      # customer8 = Customer(140, 140)
+      # customermanager.addCustomer(customer8)
+      # customer9 = Customer(40, 120)
+      # customermanager.addCustomer(customer9)
+      # customer10 = Customer(100, 120)
+      # customermanager.addCustomer(customer10)
+      # customer11 = Customer(180, 100)
+      # customermanager.addCustomer(customer11)
+      # customer12 = Customer(60, 80)
+      # customermanager.addCustomer(customer12)
+      # customer13 = Customer(120, 80)
+      # customermanager.addCustomer(customer13)
+      # customer14 = Customer(180, 60)
+      # customermanager.addCustomer(customer14)
+      # customer15 = Customer(20, 40)
+      # customermanager.addCustomer(customer15)
+      # customer16 = Customer(100, 40)
+      # customermanager.addCustomer(customer16)
+      # customer17 = Customer(200, 40)
+      # customermanager.addCustomer(customer17)
+      # customer18 = Customer(20, 20)
+      # customermanager.addCustomer(customer18)
+      # customer19 = Customer(60, 20)
+      # customermanager.addCustomer(customer19)
+      # customer20 = Customer(160, 20)
+      # customermanager.addCustomer(customer20)
+
+      # Initialize population with 50 individuals
+      pop = Population(routemanager, customermanager, vehicles, 5, True)
+      print("Initial distance: " + str(pop.getFittest().getDistance()))
+
+      # Evolve population for 500 generations
+      ga = GA(routemanager, customermanager, vehicles)
+      pop = ga.evolvePopulation(vehicles, pop)
+      for i in range(0, 500):
+            pop = ga.evolvePopulation(vehicles, pop)
+
+      # Print final results
+      print("Finished")
+      print ("Final distance: " + str(pop.getFittest().getDistance()))
+      print ("Solution:")
+      print (pop.getFittest())
