@@ -1,15 +1,13 @@
 """ This code is written to solve the vehicle routing problem.
-It is inspired by the work at: https://goo.gl/emWw54 and implements 
+Inspired by the work at: https://goo.gl/emWw54, it implements 
 the algorithm presented in the paper: (Baker, Barrie M., and M. A. Ayechew. 
 "A genetic algorithm for the vehicle routing problem." 
 Computers & Operations Research 30.5 (2003): 787-800.)"""
 """
-
 This Python code is based on Java code by Lee Jacobson found in an article
 entitled "Applying a genetic algorithm to the travelling salesman problem"
 that can be found at: http://goo.gl/cJEY1
 """
-
 import math
 import random
 
@@ -92,7 +90,7 @@ class Route:
       if route is not None:
          self.route = route
       else:
-         for i in range(0, self.customermanager.numberOfCustomers()):
+         for i in range(0, customermanager.numberOfCustomers()):
             self.route.append(None)
    
    def __len__(self):                   # Get the length of the route chromosome
@@ -120,12 +118,20 @@ class Route:
       return self.customermanager.destinationCustomers[routePosition]
  
    def getRoute(self, routePosition):   # Get a route
-      return self.routemanager.routes.route[routePosition]
+      return self.routemanager.routes[routePosition]
     
    def setRoute(self, routePosition, route):
       self.route[routePosition] = route
       self.fitness = 0.0
       self.distance = 0
+
+   def getRouteGene(self, routePosition, genePosition):   # Get a route gene
+      return self.routemanager.routes[routePosition][genePosition]
+    
+   def setRouteGene(self, genePosition, route):
+      self.route[genePosition] = route[genePosition]
+      self.fitness = 0.0
+      self.distance = 0      
    
    def getFitness(self):
       if self.fitness == 0:
@@ -151,8 +157,8 @@ class Route:
    def routeSize(self):
       return len(self.route)
    
-   def containsCustomer(self, customer):
-      return customer in self.route
+   def containsRoute(self, route):
+      return route in self.route
 
 # Declaring the Population class:
 class Population:
@@ -163,11 +169,11 @@ class Population:
          self.routes.append(None)
          
       if initialize:
-         for i in range(0, populationSize):
+         for index in range(0, populationSize):
             newRoute = Route(routemanager, customermanager)
             newRoute.generateIndividual(vehicles)
-            self.saveRoute(i, newRoute)
-      print('')
+            self.saveRoute(index, newRoute)
+            self.updateRoutes(index)
       
    def __setitem__(self, key, value):
       self.routes[key] = value
@@ -190,6 +196,9 @@ class Population:
    
    def populationSize(self):
       return len(self.routes)
+
+   def updateRoutes(self, index):
+      routemanager.addRoute(self.routes[index].route)
 
 # Declaring GA class:
 class GA:
@@ -217,6 +226,8 @@ class GA:
       for i in range(elitismOffset, newPopulation.populationSize()):
          self.mutate(newPopulation.getRoute(i))
       
+      for index in range(newPopulation.populationSize()):
+         newPopulation.updateRoutes(index)
       return newPopulation
    
    def crossover(self, parent1, parent2):
@@ -225,20 +236,37 @@ class GA:
       startPos = int(random.random() * parent1.routeSize())
       endPos = int(random.random() * parent1.routeSize())
       
-      for i in range(0, child.routeSize()):
-         if startPos < endPos and i > startPos and i < endPos:
-            child.setRoute(i, parent1.getCustomer(i))
+      # # Get the some genes from the first parent: 
+      # if startPos <= endPos:   
+      #    for i in range(startPos, endPos):
+      #       child.setRouteGene(i, parent1.route)
+      
+      # # Get the rest of genes from the second parent:
+      # for i in range(0, routemanager.numberOfRoutes()):
+      #       if endPos < routemanager.numberOfRoutes()
+      #    if not child.containsRoute(parent2.getRoute(i)):
+      #       for ii in range(0, routemanager.numberOfRoutes()):
+      #          if child.getRoute(ii) == None:
+      #             child.setRoute(ii, parent2.getRoute(i))
+      #             break
+      
+      # return child
+      for i in range(0, parent1.routeSize()):
+         if startPos <= endPos and i >= startPos and i <= endPos:
+            # child.setRoute(i, parent1.getRoute(i))
+            child.setRouteGene(i, parent1.route)
          elif startPos > endPos:
             if not (i < startPos and i > endPos):
-               child.setRoute(i, parent1.getCustomer(i))
+            #    child.setRoute(i, parent1.getRoute(i))
+               child.setRouteGene(i, parent1.route)
       
-      for i in range(0, parent2.routeSize()):
-         if not child.containsCustomer(parent2.getCustomer(i)):
-            for ii in range(0, child.routeSize()):
-               if child.getCustomer(ii) == None:
-                  child.setRoute(ii, parent2.getCustomer(i))
-                  break
-      
+      # for i in range(0, parent2.routeSize()):
+      #    if not child.containsRoute(parent2.route):
+      for ii in range(0, parent2.routeSize()):
+         if child.route[ii] == None:
+            # child.setRoute(ii, parent2.getRoute(i))
+            child.setRouteGene(ii, parent2.route)
+            # break    
       return child
    
    # Mutate a route using 2-point swap mutation:
@@ -247,11 +275,11 @@ class GA:
          if random.random() < self.mutationRate:
             routePos2 = int(route.routeSize() * random.random())
             
-            route1 = route.getRoute(routePos1)
-            route2 = route.getRoute(routePos2)
+            route1 = route[routePos1]
+            route2 = route[routePos2]
             
-            route.setRoute(routePos2, route1)
-            route.setRoute(routePos1, route2)
+            route[routePos1] = route2
+            route[routePos2] = route1
 
    # Select candidate route for crossover:
    def tournamentSelection(self, pop):
