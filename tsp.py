@@ -235,21 +235,7 @@ class GA:
       
       startPos = int(random.random() * parent1.routeSize())
       endPos = int(random.random() * parent1.routeSize())
-      
-      # # Get the some genes from the first parent: 
-      # if startPos <= endPos:   
-      #    for i in range(startPos, endPos):
-      #       child.setRouteGene(i, parent1.route)
-      
-      # # Get the rest of genes from the second parent:
-      # for i in range(0, routemanager.numberOfRoutes()):
-      #       if endPos < routemanager.numberOfRoutes()
-      #    if not child.containsRoute(parent2.getRoute(i)):
-      #       for ii in range(0, routemanager.numberOfRoutes()):
-      #          if child.getRoute(ii) == None:
-      #             child.setRoute(ii, parent2.getRoute(i))
-      #             break
-      
+          
       # return child
       for i in range(0, parent1.routeSize()):
          if startPos <= endPos and i >= startPos and i <= endPos:
@@ -260,8 +246,6 @@ class GA:
             #    child.setRoute(i, parent1.getRoute(i))
                child.setRouteGene(i, parent1.route)
       
-      # for i in range(0, parent2.routeSize()):
-      #    if not child.containsRoute(parent2.route):
       for ii in range(0, parent2.routeSize()):
          if child.route[ii] == None:
             # child.setRoute(ii, parent2.getRoute(i))
