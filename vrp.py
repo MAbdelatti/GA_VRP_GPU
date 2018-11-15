@@ -5,81 +5,63 @@ import math
 import matplotlib.pyplot as plt
 
 vrp = {}
+# Assign depot data:
+vrp['nodes'] = [{'label' : 'depot', 'demand' : 0, 'posX' : 1, 'posY' : -1}]
 
-## First reading the VRP from the input ##
-
-def readinput():
-	try:
-		line = input().strip()
-		while line == '' or line.startswith('#'):
-			line = input().strip()
-		return line
-	except EOFError:
-		return None
-
-line = readinput()
-
-if line == None:
-	print(sys.stderr, 'Empty input!')
-	exit(1)
-
-if line.lower() != 'params:':
-	print(sys.stderr, 'Invalid input: it must be the VRP initial params at first!')
-	exit(1)
-
-line = readinput()
-if line == None:
-	print(sys.stderr, 'Invalid input: missing VRP inital params and nodes!')
-	exit(1)
-while line.lower() != 'nodes:':
-	inputs = line.split()
-	if len(inputs) < 2:
-		print(sys.stderr, 'Invalid input: too few arguments for a param!')
-		exit(1)
-	if inputs[0].lower() == 'capacity':
-		vrp['capacity'] = float(inputs[1])
-		# Validating positive non-zero capacity
-		if vrp['capacity'] <= 0:
-			print(sys.stderr, 'Invalid input: capacity must be neither negative nor zero!')
-			exit(1)
-	else:
-		print >> sys.stderr, 'Invalid input: invalid VRP initial param!'
-		exit(1)
-	line = readinput()
-	if line == None:
-		print(sys.stderr, 'Invalid input: missing nodes!')
-		exit(1)
-
-if not set(vrp).issuperset({'capacity'}):
-	print(sys.stderr, 'Invalid input: missing some required VRP initial params!')
-	exit(1)
-
-line = readinput()
-vrp['nodes'] = [{'label' : 'depot', 'demand' : 0, 'posX' : 0, 'posY' : 0}]
-
-# for i in range(0,7): #TEMPORARY FOR TESTING PURPOSES
-while line != None:
-	inputs = line.split()
-	if len(inputs) < 4:
-		print(sys.stderr, 'Invalid input: too few arguments for a node!')
-		exit(1)
-	node = {'label' : inputs[0], 'demand' : float(inputs[1]), 'posX' : float(inputs[2]), 'posY' : float(inputs[3])}
-	# Validating demand neither negative nor zero
-	if node['demand'] <= 0:
-		print(sys.stderr, 'Invalid input: the demand if the node %s is negative or zero!' % node['label'])
-		exit(1)
-	# Validating demand not greater than capacity
-	if node['demand'] > vrp['capacity']:
-		print(sys.stderr, 'Invalid input: the demand of the node %s is greater than the vehicle capacity!' % node['label'])
-		exit(1)
-	vrp['nodes'].append(node)
-	line = readinput()
-
-# Validating no such nodes
-if len(vrp['nodes']) == 0:
-	print(sys.stderr, 'Invalid input: no such nodes!')
-	exit(1)
-
+def readInput():
+	## First reading the VRP from the input ##
+	fo = open(sys.argv[3],"r")
+	# fo = open('test_set/A/A-n32-k5.vrp',"r") # FOR TEMPORARY DEBUGGING
+	lines = fo.readlines()
+	for i, line in enumerate(lines):
+		while line.upper().startswith('CAPACITY'):
+			inputs = line.split()
+			vrp['capacity'] = float(inputs[2])
+			# Validating positive non-zero capacity
+			if vrp['capacity'] <= 0:
+				print(sys.stderr, 'Invalid input: capacity must be neither negative nor zero!')
+				exit(1)
+			break       
+		while line.upper().startswith('NODE_COORD_SECTION'):
+			i += 1
+			line = lines[i]
+			while not (line.upper().startswith('DEMAND_SECTION') or line=='\n'):
+				inputs = line.split()
+				node = {'label' : inputs[0], 'posX' : float(inputs[1]),
+						'posY' : float(inputs[2]), 'demand': 0.0}
+				vrp['nodes'].append(node)
+				i += 1
+				line = lines[i]
+				while (line=='\n'):
+					i += 1
+					line = lines[i]
+					if line.upper().startswith('DEMAND_SECTION'): break 
+				if line.upper().startswith('DEMAND_SECTION'):
+					i += 1
+					line = lines[i] 
+					while not (line.upper().startswith('DEPOT_SECTION')):                  
+						inputs = line.split()
+						# Validating demand not greater than capacity
+						if float(inputs[1]) > vrp['capacity']:
+							print(sys.stderr,
+							'Invalid input: the demand of the node %s is greater than the vehicle capacity!' % node['label'])
+							exit(1)
+						vrp['nodes'][int(inputs[0])]['demand'] =  float(inputs[1])
+						i += 1
+						line = lines[i]
+						while (line=='\n'):
+							i += 1
+							line = lines[i]
+							if line.upper().startswith('DEPOT_SECTION'): break 
+						if line.upper().startswith('DEPOT_SECTION'):
+							return()
+def cleanVrp():
+	# Delete nodes with zero or negative demands
+	for i in range(1,len(vrp['nodes'])-1):
+		if vrp['nodes'][i]['demand'] <= 0:
+			del vrp['nodes'][i]
+readInput()
+cleanVrp()
 ## After inputting and validating it, now computing the algorithm ##
 
 def distance(city1, city2):
@@ -139,8 +121,8 @@ def adjust(individual):
 popsize = int(sys.argv[1])
 iterations = int(sys.argv[2])
 
-# popsize = 50      #TEMPORARY FOR TESTING PURPOSES
-# iterations = 100  #TEMPORARY FOR TESTING PURPOSES
+# popsize = 10      #TEMPORARY FOR TESTING PURPOSES
+# iterations = 20  #TEMPORARY FOR TESTING PURPOSES
 
 pop = []
 
@@ -198,25 +180,43 @@ for individual in pop:
 
 
 ## After processing the algorithm, now outputting it ##
-
-
-# Printing the solution
-print (' route:')
-print ('depot')
-for i, nodeIdx in enumerate(better):
-	print (vrp['nodes'][nodeIdx]['label'])
-	if vrp['nodes'][nodeIdx]['label']=='depot':
+# Define plotting function:
+def plotRoutes(index, routeType, i=None):
+	if routeType == 'depot':
 		plt.scatter(vrp['nodes'][nodeIdx]['posX'], vrp['nodes'][nodeIdx]['posY'],None,'r','x')
-	else:
+	elif routeType == 'city':
 		plt.scatter(vrp['nodes'][nodeIdx]['posX'], vrp['nodes'][nodeIdx]['posY'],None,'b')
 		plt.annotate(vrp['nodes'][nodeIdx]['label']+',\n'+str(vrp['nodes'][nodeIdx]['demand']), 
 					xy=(vrp['nodes'][nodeIdx]['posX'], vrp['nodes'][nodeIdx]['posY']))
-	if i != len(better)-1:
-		nextCityIdx = better[i+1]
-	else:
-		nextCityIdx = 0
-	plt.plot([vrp['nodes'][nodeIdx]['posX'],vrp['nodes'][nextCityIdx]['posX']],
-				   [vrp['nodes'][nodeIdx]['posY'], vrp['nodes'][nextCityIdx]['posY']], 'k')
+	elif routeType == 'route':
+		if better[i] == 0:
+			global color
+			global style
+			color = random.choice(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
+			style = random.choice(['-', '--', '-.', ':'])
+		if i != len(better)-1:
+			nextCityIdx = better[i+1]
+		else:
+			nextCityIdx = 0
+		plt.plot([vrp['nodes'][nodeIdx]['posX'],vrp['nodes'][nextCityIdx]['posX']],
+				[vrp['nodes'][nodeIdx]['posY'], vrp['nodes'][nextCityIdx]['posY']], color+style)
+	return
+
+# Printing the solution
+print ('      route:')
+print ('depot')
+color = None
+style = None
+for i, nodeIdx in enumerate(better):
+	print (vrp['nodes'][nodeIdx]['label'])
+	if vrp['nodes'][nodeIdx]['label']=='depot':
+		plotRoutes(nodeIdx, 'depot')		
+	else: 
+		plotRoutes(nodeIdx, 'city')
+
+	plotRoutes(nodeIdx, 'route', i)
+		# nextCityIdx = better[i+1] if i != len(better)-1 else nextCityIdx = 0
+
 print ('depot')
 print (' cost:')
 print ('%f' % bf)
