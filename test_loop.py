@@ -1,5 +1,2 @@
-
-import sys
-
-line = input('enter line:').strip()
-print(line)
+test = {'name': 12, 'age': 24}
+test.append('name': 15, 'age:25')
