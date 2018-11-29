@@ -2,12 +2,20 @@ import sys
 import random
 import math
 import matplotlib.pyplot as plt
+
+from numba import int8
+from numba import float32
+
+from numba import jit
+from numba import cuda
+from numba import vectorize
 from timeit import default_timer as timer
 
 
 vrp = {}
-# Assign depot data:
-vrp['nodes'] = [{'label' : 'depot', 'demand' : 0, 'posX' : 30, 'posY' : 40}]
+vrp['nodes'] = [{'label' : 'depot', 'demand' : 0, 'posX' : 30, 'posY' : 40}] # Assign depot data:
+
+pop = []
 
 def readInput():
 	## First reading the VRP from the input ##
@@ -65,15 +73,15 @@ def cleanVrp():
 		if vrp['nodes'][i]['demand'] <= 0:
 			del vrp['nodes'][i]
 
-readInput()
-cleanVrp()
 ## After inputting and validating it, now computing the algorithm ##
 
+# @jit(nopython=True)
 def distance(city1, city2):
 	dx = city2['posX'] - city1['posX']
 	dy = city2['posY'] - city1['posY']
 	return math.sqrt(dx * dx + dy * dy)
 
+# @jit('float32(int8)', target='gpu', parallel=True)
 def fitness(individual):
 	# The first distance is from depot to the first node of the first route
 	totaldist = distance(vrp['nodes'][0], vrp['nodes'][individual[0]])
@@ -86,6 +94,8 @@ def fitness(individual):
 	totaldist += distance(vrp['nodes'][individual[len(individual) - 1]], vrp['nodes'][0])
 	return float(totaldist)
 
+
+# @jit('void(float32)', target='gpu', parallel=True)
 def adjust(individual):
 	# Adjust repeated
 	repeated = True
@@ -122,14 +132,6 @@ def adjust(individual):
 			del individual[i]
 		i -= 1
 
-
-popsize = int(sys.argv[1])
-iterations = int(sys.argv[2])
-
-# popsize = 500      #TEMPORARY FOR TESTING PURPOSES
-# iterations = 1000  #TEMPORARY FOR TESTING PURPOSES
-
-pop = []
 # Generating random initial population
 def initializePop():
 	print('GA evolving, please wait until finished...')
@@ -140,56 +142,43 @@ def initializePop():
 	for individual in pop:
 		adjust(individual)
 
-start = timer()
-initializePop()
-
+# @jit('void(int8)', target='gpu', parallel=True)
 def evolvePop(pop):
 	# Running the genetic algorithm
-	for i in range(iterations):
-		nextPop = []
+    for i in range(iterations):
+        nextPop = []
 
 		# Each one of this iteration will generate two descendants individuals. 
 		# Therefore, to guarantee same population size, this will iterate half population size times:
+        for j in range(int(len(pop) / 2)):
+            # Selecting randomly 4 individuals to select 2 parents by a binary tournament
+            parentIds = {0}
+            while len(parentIds) < 4:
+                parentIds |= {random.randint(0, len(pop) - 1)}
+            
+            parentIds = list(parentIds)
 
-		for j in range(int(len(pop) / 2)):
-			# Selecting randomly 4 individuals to select 2 parents by a binary tournament
-			parentIds = set()
-			while len(parentIds) < 4:
-				parentIds |= {random.randint(0, len(pop) - 1)}
-			parentIds = list(parentIds)
-			# Selecting 2 parents with the binary tournament
-			parent1 = pop[parentIds[0]] if fitness(pop[parentIds[0]]) < fitness(pop[parentIds[1]]) else pop[parentIds[1]]
-			parent2 = pop[parentIds[2]] if fitness(pop[parentIds[2]]) < fitness(pop[parentIds[3]]) else pop[parentIds[3]]
-			# Selecting two random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
-			cutIdx1, cutIdx2 = random.randint(1, min(len(parent1), len(parent2)) - 1), random.randint(1, min(len(parent1), len(parent2)) - 1)
-			cutIdx1, cutIdx2 = min(cutIdx1, cutIdx2), max(cutIdx1, cutIdx2)
-			# Doing crossover and generating two children
-			child1 = parent1[:cutIdx1] + parent2[cutIdx1:cutIdx2] + parent1[cutIdx2:]
-			child2 = parent2[:cutIdx1] + parent1[cutIdx1:cutIdx2] + parent2[cutIdx2:]
-			nextPop += [child1, child2]
+            # Selecting 2 parents with the binary tournament
+            parent1 = pop[parentIds[0]] if fitness(pop[parentIds[0]]) < fitness(pop[parentIds[1]]) else pop[parentIds[1]]
+            parent2 = pop[parentIds[2]] if fitness(pop[parentIds[2]]) < fitness(pop[parentIds[3]]) else pop[parentIds[3]]
+            # Selecting two random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
+            cutIdx1, cutIdx2 = random.randint(1, min(len(parent1), len(parent2)) - 1), random.randint(1, min(len(parent1), len(parent2)) - 1)
+            cutIdx1, cutIdx2 = min(cutIdx1, cutIdx2), max(cutIdx1, cutIdx2)
+            # Doing crossover and generating two children
+            child1 = parent1[:cutIdx1] + parent2[cutIdx1:cutIdx2] + parent1[cutIdx2:]
+            child2 = parent2[:cutIdx1] + parent1[cutIdx1:cutIdx2] + parent2[cutIdx2:]
+            nextPop = nextPop + [child1, child2]
 		# Doing mutation: swapping two positions in one of the individuals, with 1:15 probability
-		if random.randint(1, 15) == 1:
-			ptomutate = nextPop[random.randint(0, len(nextPop) - 1)]
-			i1 = random.randint(0, len(ptomutate) - 1)
-			i2 = random.randint(0, len(ptomutate) - 1)
-			ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+        if random.randint(1, 15) == 1:
+            ptomutate = nextPop[random.randint(0, len(nextPop) - 1)]
+            i1 = random.randint(0, len(ptomutate) - 1)
+            i2 = random.randint(0, len(ptomutate) - 1)
+            ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
 		# Adjusting individuals
-		for individual in nextPop:
-			adjust(individual)
+        for individual in nextPop:
+            adjust(individual)
 		# Updating population generation
-		pop = nextPop
-
-evolvePop(pop)
-
-# Selecting the best individual, which is the final solution
-better = None
-bf = float('inf')
-for individual in pop:
-	f = fitness(individual)
-	if f < bf:
-		bf = f
-		better = [0]+individual
-
+        pop = nextPop
 
 ## After processing the algorithm, now outputting it ##
 # Define plotting function:
@@ -205,7 +194,6 @@ def plotRoutes(index, routeType, i=None):
 			global color
 			global style
 			color = random.choice(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
-			# color = random.choice(['w', 'w'])
 			style = random.choice(['-', '--', '-.', ':'])
 		if i != len(better)-1:
 			nextCityIdx = better[i+1]
@@ -214,6 +202,27 @@ def plotRoutes(index, routeType, i=None):
 		plt.plot([vrp['nodes'][nodeIdx]['posX'],vrp['nodes'][nextCityIdx]['posX']],
 				[vrp['nodes'][nodeIdx]['posY'], vrp['nodes'][nextCityIdx]['posY']], color+style)
 	return
+
+readInput()
+cleanVrp()
+
+popsize = int(sys.argv[1])
+# popsize = 10      #TEMPORARY FOR TESTING PURPOSES
+iterations = int(sys.argv[2])
+# iterations = 20  #TEMPORARY FOR TESTING PURPOSES
+
+start = timer()
+initializePop()
+evolvePop(pop)
+
+# Selecting the best individual, which is the final solution
+better = None
+bf = float('inf')
+for individual in pop:
+	f = fitness(individual)
+	if f < bf:
+		bf = f
+		better = [0]+individual
 
 # Printing & plotting solution
 print ('route:')
@@ -233,5 +242,6 @@ for i, nodeIdx in enumerate(better):
 print ('depot')
 print ('\n'+'cost:', bf)
 print('Time Elaplsed:', int(timer()-start), 's')
+
 plt.grid()
 plt.show()
