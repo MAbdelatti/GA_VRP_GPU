@@ -1,26 +1,63 @@
 import sys
 import random
 import math
+import numpy as np
 import matplotlib.pyplot as plt
+import cProfile
+from tqdm import tqdm
+
+from numba import float32, int64
+from numba import vectorize, guvectorize, jit, cuda
+
 from timeit import default_timer as timer
 
+pr = cProfile.Profile()
+pr.enable
 
-vrp = {}
-# Assign depot data:
-vrp['nodes'] = [{'label' : 'depot', 'demand' : 0, 'posX' : 30, 'posY' : 40}]
+class node():
+    def __init__(self, label, demand, posX, posY):
+        self.label = label
+        self.demand = demand
+        self.X = posX
+        self.Y = posY
+
+class vrp():
+    def __init__(self, capacity=None):
+        self.capacity = capacity
+        self.nodes = np.zeros((2,4), dtype=np.float32)
+
+    def addNode(self, label, demand, posX, posY):
+        if label == 0:
+            self.nodes[1,:] = [label, demand, posX, posY]
+            self.nodes = np.delete(self.nodes,0,0) # not supported by numba
+        else:
+            newrow = np.array([label, demand, posX, posY], dtype=np.float32)
+            self.nodes = np.vstack((self.nodes, newrow))
+    
+"""     def cleanUp(self):
+        #  clean up nodes with 0 or negative demands
+        newarr = self.nodes[(self.nodes[:,0] == 0)] 
+        newarr = np.vstack((newarr, self.nodes[(self.nodes[:,1] >= 0)]))
+        self.nodes = newarr """
+
+pop = []
 
 def readInput():
+	# Create VRP object:
+	vrpManager = vrp()
+	vrpManager.addNode(0, 0, 0, 0)
+
 	## First reading the VRP from the input ##
 	print('Reading data file...', end='')
 	fo = open(sys.argv[3],"r")
-	# fo = open('test_set/A/A-n32-k5.vrp',"r") # FOR TEMPORARY DEBUGGING
+	#fo = open('/home/marwan/research/GA_for_VRP/GA_VRP/GA_VRP/set/A-n32-k5.vrp',"r") # FOR TEMPORARY DEBUGGING
 	lines = fo.readlines()
 	for i, line in enumerate(lines):
 		while line.upper().startswith('CAPACITY'):
 			inputs = line.split()
-			vrp['capacity'] = float(inputs[2])
+			vrpManager.capacity = np.float32(inputs[2])
 			# Validating positive non-zero capacity
-			if vrp['capacity'] <= 0:
+			if vrpManager.capacity <= 0:
 				print(sys.stderr, 'Invalid input: capacity must be neither negative nor zero!')
 				exit(1)
 			break       
@@ -29,9 +66,7 @@ def readInput():
 			line = lines[i]
 			while not (line.upper().startswith('DEMAND_SECTION') or line=='\n'):
 				inputs = line.split()
-				node = {'label' : inputs[0], 'posX' : float(inputs[1]),
-						'posY' : float(inputs[2]), 'demand': 0.0}
-				vrp['nodes'].append(node)
+				vrpManager.addNode(np.int16(inputs[0]), 0.0, np.float32(inputs[1]), np.float32((inputs[2])))
 				i += 1
 				line = lines[i]
 				while (line=='\n'):
@@ -44,11 +79,15 @@ def readInput():
 					while not (line.upper().startswith('DEPOT_SECTION')):                  
 						inputs = line.split()
 						# Validating demand not greater than capacity
-						if float(inputs[1]) > vrp['capacity']:
+						if float(inputs[1]) > vrpManager.capacity:
 							print(sys.stderr,
-							'Invalid input: the demand of the node %s is greater than the vehicle capacity!' % node['label'])
+							'Invalid input: the demand of the node %s is greater than the vehicle capacity!' % vrpManager.nodes[0])
 							exit(1)
-						vrp['nodes'][int(inputs[0])]['demand'] =  float(inputs[1])
+						if float(inputs[1]) < 0:
+							print(sys.stderr,
+							'Invalid input: the demand of the node %s cannot be negative!' % vrpManager.nodes[0])
+							exit(1)                            
+						vrpManager.nodes[int(inputs[0])][1] =  float(inputs[1])
 						i += 1
 						line = lines[i]
 						while (line=='\n'):
@@ -56,182 +95,341 @@ def readInput():
 							line = lines[i]
 							if line.upper().startswith('DEPOT_SECTION'): break 
 						if line.upper().startswith('DEPOT_SECTION'):
+							#vrpManager.cleanUp()
 							print('Done.')
-							return()
-							
-def cleanVrp():
-	# Delete nodes with zero or negative demands
-	for i in range(1,len(vrp['nodes'])-1):
-		if vrp['nodes'][i]['demand'] <= 0:
-			del vrp['nodes'][i]
+							return(vrpManager.capacity, vrpManager.nodes)
 
-readInput()
-cleanVrp()
-## After inputting and validating it, now computing the algorithm ##
-
-def distance(city1, city2):
-	dx = city2['posX'] - city1['posX']
-	dy = city2['posY'] - city1['posY']
-	return math.sqrt(dx * dx + dy * dy)
-
-def fitness(individual):
+# @guvectorize([(float32[:], float32[:], float32[:], float32[:], float32[:], float32[:], float32[:,:], float32[:])], '(m),(m),(m),(m),(m),(n),(o,p)->()', target='cuda')
+def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data):
+	total_dist = 0.0
 	# The first distance is from depot to the first node of the first route
-	totaldist = distance(vrp['nodes'][0], vrp['nodes'][individual[0]])
+	if individual[0] !=0:
+		for k in range(len(vrp_data)):
+			if vrp_data[k][0] == individual[0]:
+				first_node = vrp_data[k]
+				break
+	else:
+		first_node = depot
+
+	x1 = depot[2]
+	x2 = first_node[2]
+	y1 = depot[3]
+	y2 = first_node[3]
+
+	dx = x1 - x2
+	dy = y1 - y2
+	total_dist = math.sqrt(dx * dx + dy * dy)
+		
 	# Then calculating the distances between the nodes
-	for i in range(len(individual) - 1):
-		prev = vrp['nodes'][individual[i]]
-		next = vrp['nodes'][individual[i + 1]]
-		totaldist += distance(prev, next)
+	for i in range(len(individual) - 2):
+		if individual[i] !=0:
+			for k in range(len(vrp_data)):
+				if vrp_data[k][0] == individual[i]:
+					prev = vrp_data[k]
+					break
+		else:
+			prev = depot
+
+		if individual[i+1] !=0:
+			for k in range(len(vrp_data)):
+				if vrp_data[k][0] == individual[i+1]:
+					next_node = vrp_data[k]
+					break
+		else:
+			next_node = depot
+
+		#prev = vrp_data[vrp_data[:,0] == individual[i]][0] if individual[i] !=0 else depot
+		#next_node = vrp_data[vrp_data[:,0] == individual[i+1]][0] if individual[i+1] !=0 else depot
+		x1 = prev[2]
+		x2 = next_node[2]
+		y1 = prev[3]
+		y2 = next_node[3]
+
+		dx = x1 - x2
+		dy = y1 - y2
+		total_dist += math.sqrt(dx * dx + dy * dy)
+
 	# The last distance is from the last node of the last route to the depot
-	totaldist += distance(vrp['nodes'][individual[len(individual) - 1]], vrp['nodes'][0])
-	return float(totaldist)
 
-def adjust(individual):
-	# Adjust repeated
-	repeated = True
-	while repeated:
-		repeated = False
-		for i1 in range(len(individual)):
-			for i2 in range(i1):
-				if individual[i1] == individual[i2]:
-					haveAll = True
-					for nodeId in range(len(vrp['nodes'])):
-						if nodeId not in individual:
-							individual[i1] = nodeId
-							haveAll = False
-							break
-					if haveAll:
-						del individual[i1]
-					repeated = True
-				if repeated: break
-			if repeated: break
-	# Adjust capacity exceed
-	i = 0				  # index
-	reqcap = 0.0				  # required capacity
-	cap = vrp['capacity'] # available vehicle capacity
-	while i < len(individual):
-		reqcap += vrp['nodes'][individual[i]]['demand']
-		if reqcap > cap:
-			individual.insert(i, 0)
-			reqcap = 0.0
-		i += 1
-	i = len(individual) - 2
-	# Adjust two consective depots
-	while i >= 0:
-		if individual[i] == 0 and individual[i + 1] == 0:
-			del individual[i]
-		i -= 1
+	last_node = next_node
 
+	x1 = last_node[2]
+	x2 = depot[2]
+	y1 = last_node[3]
+	y2 = depot[3]
+	dx = x1 - x2
+	dy = y1 - y2
+	total_dist += math.sqrt(dx * dx + dy * dy)
+	return(total_dist)
 
-popsize = int(sys.argv[1])
-iterations = int(sys.argv[2])
+# @guvectorize([(float32[:,:], float32[:], float32[:])], '(m,n),(p)->()')
+def fitness(vrp_data, individual):
+	# The first distance is from depot to the first node of the first route
+	depot = np.zeros(4, dtype=np.float32)
+	depot[2:] = [30, 40]							# Depot coordinate assignments
+	first_node = np.zeros(4, dtype=np.float32)
 
-# popsize = 500      #TEMPORARY FOR TESTING PURPOSES
-# iterations = 1000  #TEMPORARY FOR TESTING PURPOSES
+	prev = np.zeros(4, dtype=np.float32)
+	next_node = np.zeros(4, dtype=np.float32)
 
-pop = []
+	last_node = np.zeros(4, dtype=np.float32)
+
+	totaldist = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)
+	return(totaldist)
+
+"""first_node = vrp_data[vrp_data[:,0] == individual[0]][0] if individual[0] !=0 else depot
+
+x1 = depot[2]
+x2 = first_node[2]
+y1 = depot[3]
+y2 = first_node[3]
+
+dx = x1 - x2
+dy = y1 - y2
+totaldist[0] = math.sqrt(dx * dx + dy * dy)
+
+# Then calculating the distances between the nodes
+for i in range(len(individual) - 2):
+	prev = np.zeros(4, dtype=np.float32)
+	next_node = np.zeros(4, dtype=np.float32)
+
+	prev = vrp_data[vrp_data[:,0] == individual[i]][0] if individual[i] !=0 else depot
+	next_node = vrp_data[vrp_data[:,0] == individual[i+1]][0] if individual[i+1] !=0 else depot
+
+	x1 = prev[2]
+	x2 = next_node[2]
+	y1 = prev[3]
+	y2 = next_node[3]
+
+	dx = x1 - x2
+	dy = y1 - y2
+	totaldist[0] += math.sqrt(dx * dx + dy * dy)
+
+# The last distance is from the last node of the last route to the depot
+last_node = np.zeros(4, dtype=np.float32)
+last_node = vrp_data[vrp_data[:,0] == individual[len(individual)-2]][0] if individual[len(individual)-2] !=0 else depot
+
+x1 = last_node[2]
+x2 = depot[2]
+y1 = last_node[3]
+y2 = depot[3]
+dx = x1 - x2
+dy = y1 - y2
+totaldist[0] += math.sqrt(dx * dx + dy * dy)
+# x = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)
+print(totaldist)
+# totaldist[0] = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)"""
+
+#@jit(parallel=True)
+def adjust(individual, vrp_data, vrp_capacity):
+    # Create TEMP list to handle insert and remove of items (not supported for arrayes in GPU!!)
+    # Adjust repeated
+    repeated = True
+    while repeated:
+        repeated = False
+        for i1 in range(len(individual) - 1):
+            for i2 in range(i1):
+                if individual[i1] == individual[i2]:
+                    haveAll = True
+                    for i3 in range(len(vrp_data)):
+                        nodeId = vrp_data[i3][0]
+                        if nodeId not in individual: # ensure that All nodes (with demand > 0) are covered in each sigle solution
+                            individual[i1] = nodeId
+                            haveAll = False
+                            break
+                    if haveAll:
+                        mask = np.ones(len(individual), dtype=bool)
+                        mask[i1] = False
+                        individual = individual[mask]
+                    repeated = True
+                if repeated: break
+            if repeated: break
+    # Adjust capacity exceed
+    i = 0               # index
+    reqcap = 0.0        # required capacity
+
+    while i < len(individual)-1: 
+        reqcap += vrp_data[vrp_data[:,0] == individual[i]][0,1] if individual[i] !=0 else 0.0
+        if reqcap > vrp_capacity: 
+            individual = np.insert(individual, i, np.float32(0))
+            reqcap = 0.0
+        i += 1
+
+    # Adjust two consecutive depots
+    i = len(individual) - 2
+    while i >= 0:
+        if individual[i] == 0 and individual[i + 1] == 0:
+            mask = np.ones(len(individual), dtype=bool)
+            mask[i] = False
+            individual = individual[mask]
+        i -= 1
+    return individual.tolist()
+    
 # Generating random initial population
-def initializePop():
-	print('GA evolving, please wait until finished...')
-	for i in range(popsize):
-		individual = list(range(1, len(vrp['nodes'])))
-		random.shuffle(individual)
-		pop.append(individual)
-	for individual in pop:
-		adjust(individual)
+def initializePop(vrp_data, popsize, vrp_capacity):
+    print('GA evolving, please wait until finished...')
+    popArr = []
+    nodes = []
+    nodes += [float(node[0]) for node in vrp_data]
+    for i in range(0, popsize):
+        individual = nodes.copy()
+        random.shuffle(individual)
+        individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+        individual.append(0.0)
+        fitness_val = fitness(np.asarray(vrp_data, dtype=np.float32), np.asarray(individual, dtype=np.float32))
+        individual[len(individual)-1] = fitness_val
+        popArr += [individual]
+    return(popArr)
 
-start = timer()
-initializePop()
+def evolvePop(pop, vrp_data, iterations, vrp_capacity):
+    def get_item(elem):
+        return elem[len(elem)-1]
 
-def evolvePop(pop):
-	# Running the genetic algorithm
-	for i in range(iterations):
-		nextPop = []
+    old_fitness = 0.0
+    tolerance_val = 0.0 # indication of convergence
+    # Running the genetic algorithm
+    for i in tqdm(range(iterations)):
+        nextPop = []
+        elite_count = len(pop)//20      # top 5% of the parents will remain in the new generation
+        sorted_pop = pop.copy()
+        sorted_pop.sort(key=get_item)
+
+        # print('Population# %s min:' %i, sorted_pop[0][len(sorted_pop[0])-1])
+
+        nextPop = sorted_pop[:elite_count]
+        current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
+        if abs(current_fitness - old_fitness) > tolerance_val:
+            old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
+        else:
+            print('Convergence occurred at iteration #', i)
+            #break
 
 		# Each one of this iteration will generate two descendants individuals. 
 		# Therefore, to guarantee same population size, this will iterate half population size times:
+        for j in range(round(((len(pop))-elite_count) / 2)):
+            # Selecting randomly 4 individuals to select 2 parents by a binary tournament
+            parentIds = {0}
+            while len(parentIds) < 4:
+                parentIds |= {random.randint(0, len(pop) - 1)}           
+            parentIds = list(parentIds)
+            # Selecting 2 parents with the binary tournament
+            parent1 = pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]]
+            parent2 = pop[parentIds[2]] if pop[parentIds[2]][len(pop[parentIds[2]])-1] < pop[parentIds[3]][len(pop[parentIds[3]])-1] else pop[parentIds[3]]
 
-		for j in range(int(len(pop) / 2)):
-			# Selecting randomly 4 individuals to select 2 parents by a binary tournament
-			parentIds = set()
-			while len(parentIds) < 4:
-				parentIds |= {random.randint(0, len(pop) - 1)}
-			parentIds = list(parentIds)
-			# Selecting 2 parents with the binary tournament
-			parent1 = pop[parentIds[0]] if fitness(pop[parentIds[0]]) < fitness(pop[parentIds[1]]) else pop[parentIds[1]]
-			parent2 = pop[parentIds[2]] if fitness(pop[parentIds[2]]) < fitness(pop[parentIds[3]]) else pop[parentIds[3]]
-			# Selecting two random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
-			cutIdx1, cutIdx2 = random.randint(1, min(len(parent1), len(parent2)) - 1), random.randint(1, min(len(parent1), len(parent2)) - 1)
-			cutIdx1, cutIdx2 = min(cutIdx1, cutIdx2), max(cutIdx1, cutIdx2)
-			# Doing crossover and generating two children
-			child1 = parent1[:cutIdx1] + parent2[cutIdx1:cutIdx2] + parent1[cutIdx2:]
-			child2 = parent2[:cutIdx1] + parent1[cutIdx1:cutIdx2] + parent2[cutIdx2:]
-			nextPop += [child1, child2]
+            # Performing Two-Point crossover and generating two children
+            # Selecting two random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
+            cutIdx1, cutIdx2 = random.randint(1, min(len(parent1) - 2, len(parent2)) - 2), random.randint(1, min(len(parent1) - 2, len(parent2)) - 2)
+            cutIdx1, cutIdx2 = min(cutIdx1, cutIdx2), max(cutIdx1, cutIdx2)
+            child1 = parent1[:cutIdx1] + parent2[cutIdx1:cutIdx2] + parent1[cutIdx2:]
+            child2 = parent2[:cutIdx1] + parent1[cutIdx1:cutIdx2] + parent2[cutIdx2:]
+
+            # Performing Uniform Crossover
+            # child1 = parent1
+            # child2 = parent2
+            # for i in range(min(len(parent1) - 1, len(parent2) - 1)):
+            #    if random.randint(0, 1) == 1:
+            #        child1[i], child2[i] = child2[i], child1[i]
+
+            nextPop = nextPop + [child1, child2]
 		# Doing mutation: swapping two positions in one of the individuals, with 1:15 probability
-		if random.randint(1, 15) == 1:
-			ptomutate = nextPop[random.randint(0, len(nextPop) - 1)]
-			i1 = random.randint(0, len(ptomutate) - 1)
-			i2 = random.randint(0, len(ptomutate) - 1)
-			ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+        if random.randint(1, 15) == 1:
+            # Random swap mutation
+            x = random.randint(0, len(nextPop) - 1)
+            ptomutate = nextPop[x]
+            i1 = random.randint(0, len(ptomutate) - 2)
+            i2 = random.randint(0, len(ptomutate) - 2)
+            while ptomutate[i1] == 0.0:
+                i1 = random.randint(0, len(ptomutate) - 2)
+            while ptomutate[i2] == 0.0:
+                i2 = random.randint(0, len(ptomutate) - 2)
+            ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+
+            # Worst swap mutation
+
 		# Adjusting individuals
-		for individual in nextPop:
-			adjust(individual)
+        for k in range(len(nextPop)):
+            individual = nextPop[k]
+            individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+            fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(individual, np.float32))
+            individual[len(individual)-1] = fitness_val
+            nextPop[k] = individual
 		# Updating population generation
-		pop = nextPop
-
-evolvePop(pop)
-
-# Selecting the best individual, which is the final solution
-better = None
-bf = float('inf')
-for individual in pop:
-	f = fitness(individual)
-	if f < bf:
-		bf = f
-		better = [0]+individual
-
+        random.shuffle(nextPop)
+        pop = nextPop
+        # print('Population# %s min:' %i, pop)
+    return (pop)
 
 ## After processing the algorithm, now outputting it ##
 # Define plotting function:
-def plotRoutes(index, routeType, i=None):
-	if routeType == 'depot':
-		plt.scatter(vrp['nodes'][nodeIdx]['posX'], vrp['nodes'][nodeIdx]['posY'],None,'r','x')
-	elif routeType == 'city':
-		plt.scatter(vrp['nodes'][nodeIdx]['posX'], vrp['nodes'][nodeIdx]['posY'],None,'b')
-		plt.annotate(vrp['nodes'][nodeIdx]['label']+',\n'+str(vrp['nodes'][nodeIdx]['demand']), 
-					xy=(vrp['nodes'][nodeIdx]['posX'], vrp['nodes'][nodeIdx]['posY']))
-	elif routeType == 'route':
-		if better[i] == 0:
-			global color
-			global style
-			color = random.choice(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
-			# color = random.choice(['w', 'w'])
-			style = random.choice(['-', '--', '-.', ':'])
-		if i != len(better)-1:
-			nextCityIdx = better[i+1]
-		else:
-			nextCityIdx = 0
-		plt.plot([vrp['nodes'][nodeIdx]['posX'],vrp['nodes'][nextCityIdx]['posX']],
-				[vrp['nodes'][nodeIdx]['posY'], vrp['nodes'][nextCityIdx]['posY']], color+style)
-	return
+def plotRoutes(nodeIdx, routeType, vrp_data, better, i=None):
+    if routeType == 'depot':
+        plt.scatter(vrp_data[0,2], vrp_data[0,3],None,'r','x')
+    elif routeType == 'city':
+        plt.scatter(vrp_data[vrp_data[:,0]==nodeIdx][0,2], vrp_data[vrp_data[:,0]==nodeIdx][0,3],None,'b')
+        plt.annotate(str(vrp_data[vrp_data[:,0]==nodeIdx][0,2])+',\n'+str(vrp_data[vrp_data[:,0]==nodeIdx][0,1]), 
+					xy=(vrp_data[vrp_data[:,0]==nodeIdx][0,1], vrp_data[vrp_data[:,0]==nodeIdx][0,2]))
+    elif routeType == 'route':
+        if better[i] == 0:
+            global color
+            global style
+            color = random.choice(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
+            style = random.choice(['-', '--', '-.', ':'])
+        if i != len(better)-1:
+            nextCityIdx = better[i+1]
+        else:
+            nextCityIdx = 0
+        #plt.plot([vrp_data[vrp_data[:,0]==nodeIdx][0,2],vrp_data[vrp_data[:,0]==nextCityIdx][0,2]],
+				#[vrp_data[vrp_data[:,0]==nodeIdx][0,3], vrp_data[vrp_data[:,0]==nextCityIdx][0,3]], color+style)
+    return
+
+depot_node = np.array(([[0, 0, 30, 40]]), dtype=np.float32) # Depot coordinate assignments
+
+vrp_capacity, vrp_data = readInput()
+popsize = int(sys.argv[1])
+iterations = int(sys.argv[2])
+
+#vrp_capacity = 40 # Temporarily!!
+#popsize = 10  # Temporarily!!
+#iterations = 20  # Temporarily!!
+
+start = timer()
+pop = initializePop(vrp_data, popsize, vrp_capacity)
+# print('Initial population:',pop)
+pop = evolvePop(pop, vrp_data, iterations, vrp_capacity)
+# print('Final population: ', pop)
+
+# Selecting the best individual, which is the final solution
+better = list([])
+#bf = float('inf')
+
+def get_item(idx):
+    return(idx[len(idx) - 1])
+individual = min(pop, key=get_item)
+#for individual in pop:
+#	f = individual[len(individual) - 1]
+#if f < bf:
+#	bf = f
+better = [0] + individual
+t = int(timer()-start)
 
 # Printing & plotting solution
 print ('route:')
 
 color = None
 style = None
-for i, nodeIdx in enumerate(better):
-    if vrp['nodes'][nodeIdx]['label']=='depot':
-        print ('\n' + vrp['nodes'][nodeIdx]['label'] + ' ', end='')
-        plotRoutes(nodeIdx, 'depot')		
+for i in range(len(better) - 1):
+    if better[i] == 0:
+        print ('\n' + 'depot' + ' ', end='')
+        # plotRoutes(nodeIdx, 'depot', depot_node, better)		
     else:
-        print (vrp['nodes'][nodeIdx]['label'] + ' ', end='')
-        plotRoutes(nodeIdx, 'city')
+        print (str(better[i]) + ' ', end='')
+        # plotRoutes(nodeIdx, 'city', vrp_data, better)
 
-    plotRoutes(nodeIdx, 'route', i)
+    # plotRoutes(nodeIdx, 'route', vrp_data, better, i)
 
 print ('depot')
-print ('\n'+'cost:', bf)
-print('Time Elaplsed:', int(timer()-start), 's')
-plt.grid()
-plt.show()
+print ('\n'+'cost:', individual[len(individual) - 1])
+print('Time Elaplsed:', t, 's')
+
+# plt.grid()
+# plt.show()
