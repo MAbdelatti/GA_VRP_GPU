@@ -99,9 +99,9 @@ def readInput():
 							print('Done.')
 							return(vrpManager.capacity, vrpManager.nodes)
 
-@guvectorize([(float32[:], float32[:], float32[:], float32[:], float32[:], float32[:], float32[:,:], float32[:])], '(m),(m),(m),(m),(m),(n),(o,p)->()', target='cuda')
+@guvectorize([(float32[:], float32[:], float32[:], float32[:], float32[:], float32[:], float32[:,:], int64[:])], '(m),(m),(m),(m),(m),(n),(o,p)->()', target='cuda')
 def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data, total_dist):
-    total_dist[0] = 0.0
+    total_dist[0] = 0
     # The first distance is from depot to the first node of the first route
     if individual[0] !=0:
         for k in range(len(vrp_data)):
@@ -118,7 +118,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
     
     dx = x1 - x2
     dy = y1 - y2
-    total_dist[0] = math.sqrt(dx * dx + dy * dy)
+    total_dist[0] = round(math.sqrt(dx * dx + dy * dy))
         
     # Then calculating the distances between the nodes
     for i in range(len(individual) - 2):
@@ -147,7 +147,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 
         dx = x1 - x2
         dy = y1 - y2
-        total_dist[0] += math.sqrt(dx * dx + dy * dy)
+        total_dist[0] += round(math.sqrt(dx * dx + dy * dy))
 
     # The last distance is from the last node of the last route to the depot
  
@@ -159,9 +159,9 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
     y2 = depot[3]
     dx = x1 - x2
     dy = y1 - y2
-    total_dist[0] += math.sqrt(dx * dx + dy * dy)
+    total_dist[0] += round(math.sqrt(dx * dx + dy * dy))
 
-@guvectorize([(float32[:,:], float32[:], float32[:])], '(m,n),(p)->()')
+@guvectorize([(float32[:,:], float32[:], int64[:])], '(m,n),(p)->()')
 def fitness(vrp_data, individual, totaldist):
     # The first distance is from depot to the first node of the first route
     depot = np.zeros(4, dtype=np.float32)

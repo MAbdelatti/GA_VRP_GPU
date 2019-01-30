@@ -101,7 +101,7 @@ def readInput():
 
 # @guvectorize([(float32[:], float32[:], float32[:], float32[:], float32[:], float32[:], float32[:,:], float32[:])], '(m),(m),(m),(m),(m),(n),(o,p)->()', target='cuda')
 def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data):
-	total_dist = 0.0
+	total_dist = 0
 	# The first distance is from depot to the first node of the first route
 	if individual[0] !=0:
 		for k in range(len(vrp_data)):
@@ -118,7 +118,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 
 	dx = x1 - x2
 	dy = y1 - y2
-	total_dist = math.sqrt(dx * dx + dy * dy)
+	total_dist = round(math.sqrt(dx * dx + dy * dy))
 		
 	# Then calculating the distances between the nodes
 	for i in range(len(individual) - 2):
@@ -147,7 +147,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 
 		dx = x1 - x2
 		dy = y1 - y2
-		total_dist += math.sqrt(dx * dx + dy * dy)
+		total_dist += round(math.sqrt(dx * dx + dy * dy))
 
 	# The last distance is from the last node of the last route to the depot
 
@@ -159,14 +159,14 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 	y2 = depot[3]
 	dx = x1 - x2
 	dy = y1 - y2
-	total_dist += math.sqrt(dx * dx + dy * dy)
+	total_dist += round(math.sqrt(dx * dx + dy * dy))
 	return(total_dist)
 
 # @guvectorize([(float32[:,:], float32[:], float32[:])], '(m,n),(p)->()')
 def fitness(vrp_data, individual):
 	# The first distance is from depot to the first node of the first route
 	depot = np.zeros(4, dtype=np.float32)
-	depot[2:] = [35, 35]							# Depot coordinate assignments
+	depot[2:] = [40, 40]							# Depot coordinate assignments
 	first_node = np.zeros(4, dtype=np.float32)
 
 	prev = np.zeros(4, dtype=np.float32)
@@ -310,9 +310,9 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         mask = []
         #for i in range(len(max(pop,key= lambda indiv: len(indiv)))):
         #for i in range(len(max(pop,key= lambda indiv: len(indiv)))//2):
-        for i in range(len(max(pop,key= lambda indiv: len(indiv)))//3):
+        # for i in range(len(max(pop,key= lambda indiv: len(indiv)))//3):
         #for i in range(len(max(pop,key= lambda indiv: len(indiv)))//4):
-            mask.append(random.randint(0, 1))
+            # mask.append(random.randint(0, 1))
 
         for j in range(round(((len(pop))-elite_count) / 2)):
             # Selecting randomly 4 individuals to select 2 parents by a binary tournament
@@ -325,26 +325,37 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
             parent1 = pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]]
             parent2 = pop[parentIds[2]] if pop[parentIds[2]][len(pop[parentIds[2]])-1] < pop[parentIds[3]][len(pop[parentIds[3]])-1] else pop[parentIds[3]]
 
-            # Performing Two-Point crossover and generating two children
-            # Selecting two random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
-            # cutIdx1, cutIdx2 = random.randint(1, min(len(parent1) - 2, len(parent2)) - 2), random.randint(1, min(len(parent1) - 2, len(parent2)) - 2)
-            # cutIdx1, cutIdx2 = min(cutIdx1, cutIdx2), max(cutIdx1, cutIdx2)
-            # child1 = parent1[:cutIdx1] + parent2[cutIdx1:cutIdx2] + parent1[cutIdx2:]
-            # child2 = parent2[:cutIdx1] + parent1[cutIdx1:cutIdx2] + parent2[cutIdx2:]
-
-            # Performing Uniform Crossover
             child1 = parent1.copy()
             child2 = parent2.copy()
-            for i in range(min(len(parent1) - 1, len(parent2) - 1)//3):
-              if mask[i] == 1:
-               #child1[i], child2[i] = child2[i], child1[i]
 
-                #child1[2*i], child2[2*i] = child2[2*i], child1[2*i]
-                #child1[2*i+1], child2[2*i+1] = child2[2*i+1], child1[2*i+1]
+            # Performing Two-Point crossover and generating two children
+            # Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
+
+            cutIdx = [0] * ((min(len(parent1) - 2, len(parent2)) - 2)//5 - 1)
+            for k in range(0, len(cutIdx)):
+                cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2)) - 2)
+                while cutIdx[k] in cutIdx[:k]:
+                    cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2)) - 2)
+            cutIdx.sort()
+            for k in range(0, len(cutIdx), 2):
+                if len(cutIdx) %2 == 1 and k == len(cutIdx) - 1: # Odd number
+                    child1[cutIdx[k]:] = child2[cutIdx[k]:]
+                    child2[cutIdx[k]:] = child1[cutIdx[k]:]
+                else:                       
+                    child1[cutIdx[k]:cutIdx[k + 1]] = child2[cutIdx[k]:cutIdx[k + 1]]
+                    child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]
+
+            # Performing Uniform Crossover
+            # for i in range(min(len(parent1) - 1, len(parent2) - 1)//3):
+            #   if mask[i] == 1:
+            #    #child1[i], child2[i] = child2[i], child1[i]
+
+            #     #child1[2*i], child2[2*i] = child2[2*i], child1[2*i]
+            #     #child1[2*i+1], child2[2*i+1] = child2[2*i+1], child1[2*i+1]
                    
-                child1[3*i], child2[3*i] = child2[3*i], child1[3*i]
-                child1[3*i+1], child2[3*i+1] = child2[3*i+1], child1[3*i+1]
-                child1[3*i+2], child2[3*i+2] = child2[3*i+2], child1[3*i+2]
+            #     child1[3*i], child2[3*i] = child2[3*i], child1[3*i]
+            #     child1[3*i+1], child2[3*i+1] = child2[3*i+1], child1[3*i+1]
+            #     child1[3*i+2], child2[3*i+2] = child2[3*i+2], child1[3*i+2]
 
                 #child1[4*i], child2[4*i] = child2[4*i], child1[4*i]
                 #child1[4*i+1], child2[4*i+1] = child2[4*i+1], child1[4*i+1]
@@ -364,8 +375,6 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
             while ptomutate[i2] == 0.0:
                 i2 = random.randint(0, len(ptomutate) - 2)
             ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
-
-            # Worst swap mutation
 
 		# Adjusting individuals
         for k in range(len(nextPop)):
@@ -403,7 +412,7 @@ def plotRoutes(nodeIdx, routeType, vrp_data, better, i=None):
 				#[vrp_data[vrp_data[:,0]==nodeIdx][0,3], vrp_data[vrp_data[:,0]==nextCityIdx][0,3]], color+style)
     return
 
-depot_node = np.array(([[0, 0, 35, 35]]), dtype=np.float32) # Depot coordinate assignments
+depot_node = np.array(([[0, 0, 40, 40]]), dtype=np.float32) # Depot coordinate assignments
 
 vrp_capacity, vrp_data = readInput()
 popsize = int(sys.argv[1])
