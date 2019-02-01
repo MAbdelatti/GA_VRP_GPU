@@ -166,7 +166,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 def fitness(vrp_data, individual):
 	# The first distance is from depot to the first node of the first route
 	depot = np.zeros(4, dtype=np.float32)
-	depot[2:] = [40, 40]							# Depot coordinate assignments
+	depot[2:] = [30, 40]							# Depot coordinate assignments
 	first_node = np.zeros(4, dtype=np.float32)
 
 	prev = np.zeros(4, dtype=np.float32)
@@ -412,7 +412,7 @@ def plotRoutes(nodeIdx, routeType, vrp_data, better, i=None):
 				#[vrp_data[vrp_data[:,0]==nodeIdx][0,3], vrp_data[vrp_data[:,0]==nextCityIdx][0,3]], color+style)
     return
 
-depot_node = np.array(([[0, 0, 40, 40]]), dtype=np.float32) # Depot coordinate assignments
+depot_node = np.array(([[0, 0, 30, 40]]), dtype=np.float32) # Depot coordinate assignments
 
 vrp_capacity, vrp_data = readInput()
 popsize = int(sys.argv[1])

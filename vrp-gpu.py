@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import cProfile
 from tqdm import tqdm
 
-from numba import float32, int64
+from numba import float32, int64, int32
 from numba import vectorize, guvectorize, jit, cuda
 
 from timeit import default_timer as timer
@@ -99,9 +99,9 @@ def readInput():
 							print('Done.')
 							return(vrpManager.capacity, vrpManager.nodes)
 
-@guvectorize([(float32[:], float32[:], float32[:], float32[:], float32[:], float32[:], float32[:,:], int64[:])], '(m),(m),(m),(m),(m),(n),(o,p)->()', target='cuda')
+@guvectorize([(float32[:], float32[:], float32[:], float32[:], float32[:], float32[:], float32[:,:], float32[:])], '(m),(m),(m),(m),(m),(n),(o,p)->()', target='cuda')
 def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data, total_dist):
-    total_dist[0] = 0
+    total_dist[0] = 0.0
     # The first distance is from depot to the first node of the first route
     if individual[0] !=0:
         for k in range(len(vrp_data)):
@@ -118,7 +118,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
     
     dx = x1 - x2
     dy = y1 - y2
-    total_dist[0] = round(math.sqrt(dx * dx + dy * dy))
+    total_dist[0] = math.sqrt(dx * dx + dy * dy)
         
     # Then calculating the distances between the nodes
     for i in range(len(individual) - 2):
@@ -147,7 +147,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 
         dx = x1 - x2
         dy = y1 - y2
-        total_dist[0] += round(math.sqrt(dx * dx + dy * dy))
+        total_dist[0] += math.sqrt(dx * dx + dy * dy)
 
     # The last distance is from the last node of the last route to the depot
  
@@ -159,9 +159,9 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
     y2 = depot[3]
     dx = x1 - x2
     dy = y1 - y2
-    total_dist[0] += round(math.sqrt(dx * dx + dy * dy))
+    total_dist[0] += math.sqrt(dx * dx + dy * dy)
 
-@guvectorize([(float32[:,:], float32[:], int64[:])], '(m,n),(p)->()')
+@guvectorize([(float32[:,:], float32[:], int32[:])], '(m,n),(p)->()')
 def fitness(vrp_data, individual, totaldist):
     # The first distance is from depot to the first node of the first route
     depot = np.zeros(4, dtype=np.float32)
@@ -174,49 +174,6 @@ def fitness(vrp_data, individual, totaldist):
     last_node = np.zeros(4, dtype=np.float32)
 
     totaldist[0] = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)
-
-    """first_node = vrp_data[vrp_data[:,0] == individual[0]][0] if individual[0] !=0 else depot
-
-    x1 = depot[2]
-    x2 = first_node[2]
-    y1 = depot[3]
-    y2 = first_node[3]
-
-    dx = x1 - x2
-    dy = y1 - y2
-    totaldist[0] = math.sqrt(dx * dx + dy * dy)
-
-    # Then calculating the distances between the nodes
-    for i in range(len(individual) - 2):
-        prev = np.zeros(4, dtype=np.float32)
-        next_node = np.zeros(4, dtype=np.float32)
-
-        prev = vrp_data[vrp_data[:,0] == individual[i]][0] if individual[i] !=0 else depot
-        next_node = vrp_data[vrp_data[:,0] == individual[i+1]][0] if individual[i+1] !=0 else depot
-
-        x1 = prev[2]
-        x2 = next_node[2]
-        y1 = prev[3]
-        y2 = next_node[3]
-
-        dx = x1 - x2
-        dy = y1 - y2
-        totaldist[0] += math.sqrt(dx * dx + dy * dy)
-
-    # The last distance is from the last node of the last route to the depot
-    last_node = np.zeros(4, dtype=np.float32)
-    last_node = vrp_data[vrp_data[:,0] == individual[len(individual)-2]][0] if individual[len(individual)-2] !=0 else depot
-
-    x1 = last_node[2]
-    x2 = depot[2]
-    y1 = last_node[3]
-    y2 = depot[3]
-    dx = x1 - x2
-    dy = y1 - y2
-    totaldist[0] += math.sqrt(dx * dx + dy * dy)
-    # x = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)
-    print(totaldist)
-    # totaldist[0] = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)"""
 
 #@jit([(float32[:], float32[:,:], float32)])
 def adjust(individual, vrp_data, vrp_capacity):
@@ -280,6 +237,113 @@ def initializePop(vrp_data, popsize, vrp_capacity):
     return(popArr)
 
 def evolvePop(pop, vrp_data, iterations, vrp_capacity):
+    def get_item(elem):
+        return elem[len(elem)-1]
+
+    old_fitness = 0.0
+    tolerance_val = 0.0 # indication of convergence
+    # Running the genetic algorithm
+    for i in tqdm(range(iterations)):
+        nextPop = []
+        elite_count = len(pop)//20      # top 5% of the parents will remain in the new generation
+        sorted_pop = pop.copy()
+        sorted_pop.sort(key=get_item)
+
+        print('Population# %s min:' %i, sorted_pop[0][len(sorted_pop[0])-1])
+
+        nextPop = sorted_pop[:elite_count]
+        current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
+        if abs(current_fitness - old_fitness) > tolerance_val:
+            old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
+        # else:
+        #     print('Convergence occurred at iteration #', i)
+        #     #break
+
+		# Each one of this iteration will generate two descendants individuals. 
+		# Therefore, to guarantee same population size, this will iterate half population size times
+        # Also, we need to create a mask for uniform crossover
+        mask = []
+        #for i in range(len(max(pop,key= lambda indiv: len(indiv)))):
+        #for i in range(len(max(pop,key= lambda indiv: len(indiv)))//2):
+        # for i in range(len(max(pop,key= lambda indiv: len(indiv)))//3):
+        #for i in range(len(max(pop,key= lambda indiv: len(indiv)))//4):
+            # mask.append(random.randint(0, 1))
+
+        for j in range(round(((len(pop))-elite_count) / 2)):
+            # Selecting randomly 4 individuals to select 2 parents by a binary tournament
+            parentIds = {0}
+            while len(parentIds) < 4:
+                parentIds |= {random.randint(0, len(pop) - 1)}
+
+            parentIds = list(parentIds)
+            # Selecting 2 parents with the binary tournament
+            parent1 = pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]]
+            parent2 = pop[parentIds[2]] if pop[parentIds[2]][len(pop[parentIds[2]])-1] < pop[parentIds[3]][len(pop[parentIds[3]])-1] else pop[parentIds[3]]
+
+            child1 = parent1.copy()
+            child2 = parent2.copy()
+
+            # Performing Two-Point crossover and generating two children
+            # Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
+
+            cutIdx = [0] * ((min(len(parent1) - 2, len(parent2)) - 2)//5 - 1)
+            for k in range(0, len(cutIdx)):
+                cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2)) - 2)
+                while cutIdx[k] in cutIdx[:k]:
+                    cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2)) - 2)
+            cutIdx.sort()
+            for k in range(0, len(cutIdx), 2):
+                if len(cutIdx) %2 == 1 and k == len(cutIdx) - 1: # Odd number
+                    child1[cutIdx[k]:] = child2[cutIdx[k]:]
+                    child2[cutIdx[k]:] = child1[cutIdx[k]:]
+                else:                       
+                    child1[cutIdx[k]:cutIdx[k + 1]] = child2[cutIdx[k]:cutIdx[k + 1]]
+                    child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]
+
+            # Performing Uniform Crossover
+            # for i in range(min(len(parent1) - 1, len(parent2) - 1)//3):
+            #   if mask[i] == 1:
+            #    #child1[i], child2[i] = child2[i], child1[i]
+
+            #     #child1[2*i], child2[2*i] = child2[2*i], child1[2*i]
+            #     #child1[2*i+1], child2[2*i+1] = child2[2*i+1], child1[2*i+1]
+                   
+            #     child1[3*i], child2[3*i] = child2[3*i], child1[3*i]
+            #     child1[3*i+1], child2[3*i+1] = child2[3*i+1], child1[3*i+1]
+            #     child1[3*i+2], child2[3*i+2] = child2[3*i+2], child1[3*i+2]
+
+                #child1[4*i], child2[4*i] = child2[4*i], child1[4*i]
+                #child1[4*i+1], child2[4*i+1] = child2[4*i+1], child1[4*i+1]
+                #child1[4*i+2], child2[4*i+2] = child2[4*i+2], child1[4*i+2]
+                #child1[4*i+3], child2[4*i+3] = child2[4*i+3], child1[4*i+3]
+
+            nextPop = nextPop + [child1, child2]
+		# Doing mutation: swapping two positions in one of the individuals, with 1:15 probability
+        if random.randint(1, 5) == 1:
+            # Random swap mutation
+            x = random.randint(0, len(nextPop) - 1)
+            ptomutate = nextPop[x]
+            i1 = random.randint(0, len(ptomutate) - 2)
+            i2 = random.randint(0, len(ptomutate) - 2)
+            while ptomutate[i1] == 0.0:
+                i1 = random.randint(0, len(ptomutate) - 2)
+            while ptomutate[i2] == 0.0:
+                i2 = random.randint(0, len(ptomutate) - 2)
+            ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+
+		# Adjusting individuals
+        for k in range(len(nextPop)):
+            individual = nextPop[k]
+            individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+            fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(individual, np.float32))
+            individual[len(individual)-1] = fitness_val
+            nextPop[k] = individual
+		# Updating population generation
+        random.shuffle(nextPop)
+        pop = nextPop
+        # print('Population# %s min:' %i, pop)
+    return (pop)
+
     def get_item(elem):
         return elem[len(elem)-1]
 	# Running the genetic algorithm
