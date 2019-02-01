@@ -177,49 +177,6 @@ def fitness(vrp_data, individual):
 	totaldist = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)
 	return(totaldist)
 
-"""first_node = vrp_data[vrp_data[:,0] == individual[0]][0] if individual[0] !=0 else depot
-
-x1 = depot[2]
-x2 = first_node[2]
-y1 = depot[3]
-y2 = first_node[3]
-
-dx = x1 - x2
-dy = y1 - y2
-totaldist[0] = math.sqrt(dx * dx + dy * dy)
-
-# Then calculating the distances between the nodes
-for i in range(len(individual) - 2):
-	prev = np.zeros(4, dtype=np.float32)
-	next_node = np.zeros(4, dtype=np.float32)
-
-	prev = vrp_data[vrp_data[:,0] == individual[i]][0] if individual[i] !=0 else depot
-	next_node = vrp_data[vrp_data[:,0] == individual[i+1]][0] if individual[i+1] !=0 else depot
-
-	x1 = prev[2]
-	x2 = next_node[2]
-	y1 = prev[3]
-	y2 = next_node[3]
-
-	dx = x1 - x2
-	dy = y1 - y2
-	totaldist[0] += math.sqrt(dx * dx + dy * dy)
-
-# The last distance is from the last node of the last route to the depot
-last_node = np.zeros(4, dtype=np.float32)
-last_node = vrp_data[vrp_data[:,0] == individual[len(individual)-2]][0] if individual[len(individual)-2] !=0 else depot
-
-x1 = last_node[2]
-x2 = depot[2]
-y1 = last_node[3]
-y2 = depot[3]
-dx = x1 - x2
-dy = y1 - y2
-totaldist[0] += math.sqrt(dx * dx + dy * dy)
-# x = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)
-print(totaldist)
-# totaldist[0] = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)"""
-
 #@jit(parallel=True)
 def adjust(individual, vrp_data, vrp_capacity):
     # Create TEMP list to handle insert and remove of items (not supported for arrayes in GPU!!)
@@ -421,11 +378,18 @@ iterations = int(sys.argv[2])
 #vrp_capacity = 40 # Temporarily!!
 #popsize = 10  # Temporarily!!
 #iterations = 20  # Temporarily!!
+from concurrent.futures import ThreadPoolExecutor
+pool = ThreadPoolExecutor(max_workers=5)
 
 start = timer()
-pop = initializePop(vrp_data, popsize, vrp_capacity)
-# print('Initial population:',pop)
-pop = evolvePop(pop, vrp_data, iterations, vrp_capacity)
+# pop = initializePop(vrp_data, popsize, vrp_capacity)
+future_1 = pool.submit(initializePop, vrp_data, popsize, vrp_capacity)
+pop = future_1.result()
+
+future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, vrp_capacity)
+pop = future_2.result()
+
+# pop = evolvePop(pop, vrp_data, iterations, vrp_capacity)
 # print('Final population: ', pop)
 
 # Selecting the best individual, which is the final solution
