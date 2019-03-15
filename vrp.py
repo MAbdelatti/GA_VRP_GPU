@@ -166,7 +166,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 def fitness(vrp_data, individual):
 	# The first distance is from depot to the first node of the first route
 	depot = np.zeros(4, dtype=np.float32)
-	depot[2:] = [30, 40]							# Depot coordinate assignments
+	depot[2:] = [40, 40]							# Depot coordinate assignments
 	first_node = np.zeros(4, dtype=np.float32)
 
 	prev = np.zeros(4, dtype=np.float32)
@@ -251,7 +251,7 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         sorted_pop = pop.copy()
         sorted_pop.sort(key=get_item)
 
-        print('Population# %s min:' %i, sorted_pop[0][len(sorted_pop[0])-1])
+        # print('Population# %s min:' %i, sorted_pop[0][len(sorted_pop[0])-1])
 
         nextPop = sorted_pop[:elite_count]
         current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
@@ -369,7 +369,7 @@ def plotRoutes(nodeIdx, routeType, vrp_data, better, i=None):
 				#[vrp_data[vrp_data[:,0]==nodeIdx][0,3], vrp_data[vrp_data[:,0]==nextCityIdx][0,3]], color+style)
     return
 
-depot_node = np.array(([[0, 0, 30, 40]]), dtype=np.float32) # Depot coordinate assignments
+depot_node = np.array(([[0, 0, 40, 40]]), dtype=np.float32) # Depot coordinate assignments
 
 vrp_capacity, vrp_data = readInput()
 popsize = int(sys.argv[1])
@@ -378,8 +378,11 @@ iterations = int(sys.argv[2])
 #vrp_capacity = 40 # Temporarily!!
 #popsize = 10  # Temporarily!!
 #iterations = 20  # Temporarily!!
+import multiprocessing as MLP
 from concurrent.futures import ThreadPoolExecutor
-pool = ThreadPoolExecutor(max_workers=5)
+
+cpu_no = MLP.cpu_count()
+pool = ThreadPoolExecutor(max_workers=cpu_no)
 
 start = timer()
 # pop = initializePop(vrp_data, popsize, vrp_capacity)
