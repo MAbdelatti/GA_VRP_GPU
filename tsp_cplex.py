@@ -9,7 +9,7 @@ import os
 rnd = np.random
 rnd.seed(0)
 
-n = 15 # Total number of cities
+n = 16 # Total number of cities
 # Q = 15
 A = range(0, n)
 
