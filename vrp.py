@@ -410,7 +410,7 @@ better = [0] + individual
 t = int(timer()-start)
 
 # Printing & plotting solution
-print ('route:')
+print ('Solution after GA:')
 
 color = None
 style = None
@@ -430,3 +430,9 @@ print('Time Elaplsed:', t, 's')
 
 # plt.grid()
 # plt.show()
+
+# Solve routes as TSP:
+print('Solving the routes as TSP...')
+import tsp_cplex as tsp
+
+tsp.solve(better[:-1], vrp_data)
