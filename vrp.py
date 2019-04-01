@@ -432,7 +432,6 @@ print('Time Elaplsed:', t, 's')
 # plt.show()
 
 # Solve routes as TSP:
-print('Solving the routes as TSP...')
 import tsp_cplex as tsp
 
 tsp.solve(better[:-1], vrp_data)
