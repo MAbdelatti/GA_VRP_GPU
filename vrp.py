@@ -45,7 +45,7 @@ pop = []
 def readInput():
 	# Create VRP object:
 	vrpManager = vrp()
-	vrpManager.addNode(0, 0, 0, 0)
+	vrpManager.addNode(0, 0, 40, 40) # Depot coordinate assignments
 
 	## First reading the VRP from the input ##
 	print('Reading data file...', end='')
@@ -100,7 +100,7 @@ def readInput():
 							return(vrpManager.capacity, vrpManager.nodes)
 
 # @guvectorize([(float32[:], float32[:], float32[:], float32[:], float32[:], float32[:], float32[:,:], float32[:])], '(m),(m),(m),(m),(m),(n),(o,p)->()', target='cuda')
-def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data):
+def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 	total_dist = 0
 	# The first distance is from depot to the first node of the first route
 	if individual[0] !=0:
@@ -109,11 +109,11 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 				first_node = vrp_data[k]
 				break
 	else:
-		first_node = depot
+		first_node = vrp_data[0]
 
-	x1 = depot[2]
+	x1 = vrp_data[0][2]
 	x2 = first_node[2]
-	y1 = depot[3]
+	y1 = vrp_data[0][3]
 	y2 = first_node[3]
 
 	dx = x1 - x2
@@ -128,7 +128,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 					prev = vrp_data[k]
 					break
 		else:
-			prev = depot
+			prev = vrp_data[0]
 
 		if individual[i+1] !=0:
 			for k in range(len(vrp_data)):
@@ -136,7 +136,7 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 					next_node = vrp_data[k]
 					break
 		else:
-			next_node = depot
+			next_node = vrp_data[0]
 
 		#prev = vrp_data[vrp_data[:,0] == individual[i]][0] if individual[i] !=0 else depot
 		#next_node = vrp_data[vrp_data[:,0] == individual[i+1]][0] if individual[i+1] !=0 else depot
@@ -154,9 +154,9 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 	last_node = next_node
 
 	x1 = last_node[2]
-	x2 = depot[2]
+	x2 = vrp_data[0][2]
 	y1 = last_node[3]
-	y2 = depot[3]
+	y2 = vrp_data[0][3]
 	dx = x1 - x2
 	dy = y1 - y2
 	total_dist += round(math.sqrt(dx * dx + dy * dy))
@@ -164,9 +164,6 @@ def distance(depot, first_node, prev, next_node, last_node, individual, vrp_data
 
 # @guvectorize([(float32[:,:], float32[:], float32[:])], '(m,n),(p)->()')
 def fitness(vrp_data, individual):
-	# The first distance is from depot to the first node of the first route
-	depot = np.zeros(4, dtype=np.float32)
-	depot[2:] = [40, 40]							# Depot coordinate assignments
 	first_node = np.zeros(4, dtype=np.float32)
 
 	prev = np.zeros(4, dtype=np.float32)
@@ -174,7 +171,7 @@ def fitness(vrp_data, individual):
 
 	last_node = np.zeros(4, dtype=np.float32)
 
-	totaldist = distance(depot, first_node, prev, next_node, last_node, individual, vrp_data)
+	totaldist = distance(first_node, prev, next_node, last_node, individual, vrp_data)
 	return(totaldist)
 
 #@jit(parallel=True)
@@ -369,8 +366,7 @@ def plotRoutes(nodeIdx, routeType, vrp_data, better, i=None):
 				#[vrp_data[vrp_data[:,0]==nodeIdx][0,3], vrp_data[vrp_data[:,0]==nextCityIdx][0,3]], color+style)
     return
 
-depot_node = np.array(([[0, 0, 40, 40]]), dtype=np.float32) # Depot coordinate assignments
-
+# depot_node = np.array(([[0, 0, 40, 40]]), dtype=np.float32) # Depot coordinate assignments
 vrp_capacity, vrp_data = readInput()
 popsize = int(sys.argv[1])
 iterations = int(sys.argv[2])
@@ -410,28 +406,47 @@ better = [0] + individual
 t = int(timer()-start)
 
 # Printing & plotting solution
-print ('Solution after GA:')
+print ('Solution by GA:\n', better[:-1]+[0])
 
-color = None
-style = None
-for i in range(len(better) - 1):
-    if better[i] == 0:
-        print ('\n' + 'depot' + ' ', end='')
-        # plotRoutes(nodeIdx, 'depot', depot_node, better)		
-    else:
-        print (str(better[i]) + ' ', end='')
+# color = None
+# style = None
+# for i in range(len(better) - 1):
+#     if better[i] == 0:
+#         break
+#         print ('\n' + 'depot' + ' ', end='')
+#         # plotRoutes(nodeIdx, 'depot', depot_node, better)		
+#     else:
+#         break
+#         print (str(better[i]) + ' ', end='')
         # plotRoutes(nodeIdx, 'city', vrp_data, better)
 
     # plotRoutes(nodeIdx, 'route', vrp_data, better, i)
 
-print ('depot')
+# print ('depot')
 print ('\n'+'cost:', individual[len(individual) - 1])
-print('Time Elaplsed:', t, 's')
+# print('Time Elaplsed:', t, 's')
 
-# plt.grid()
-# plt.show()
+# Plot solution:
+plt.scatter(vrp_data[1:][:,2], vrp_data[1:][:,3], c='b')
+plt.plot(vrp_data[0][2], vrp_data[0][3], c='r', marker='s')
+
+line_1 = None
+for loc, i in enumerate(better[:-1]):
+    if i != 0:
+        # Text annotations for data points:
+        plt.annotate(('%d\n"%d"'%(i, vrp_data[vrp_data[:,0]==i][0][1])), (vrp_data[vrp_data[:,0]==i][0][2]+1,vrp_data[vrp_data[:,0]==i][0][3]))
+    if loc != len(better)-2:
+        # Plot routes
+        plt.plot([vrp_data[vrp_data[:,0]==i][0][2], vrp_data[vrp_data[:,0]==better[loc+1]][0][2]],\
+         [vrp_data[vrp_data[:,0]==i][0][3], vrp_data[vrp_data[:,0]==better[loc+1]][0][3]]\
+             , c='k', linestyle='--', alpha=0.3)
+    else:
+        line_1, = plt.plot([vrp_data[vrp_data[:,0]==i][0][2], vrp_data[0][2]],\
+         [vrp_data[vrp_data[:,0]==i][0][3], vrp_data[0][3]], label='GA only: %d'%individual[len(individual) - 1]\
+             , c='k', linestyle='--', alpha=0.3)
+
+plt.axis('equal')
 
 # Solve routes as TSP:
 import tsp_cplex as tsp
-
-tsp.solve(better[:-1], vrp_data)
+tsp.solve(better[:-1], vrp_data, line_1)
