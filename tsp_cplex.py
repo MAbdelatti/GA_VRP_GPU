@@ -50,9 +50,8 @@ def solve(better, vrp_data, line_1):
             mdl = Model('TSP')
 
 
-            # Define arcs and capacities:
+            # Define arcs:
             x = mdl.binary_var_dict(X, name= 'x')
-            # u = mdl.continuous_var_list(n, 0, float('inf'))
             u = mdl.continuous_var_dict(route, 0, float('inf'))
 
             # Define objective function:

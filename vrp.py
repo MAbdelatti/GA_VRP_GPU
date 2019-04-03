@@ -118,7 +118,7 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 
 	dx = x1 - x2
 	dy = y1 - y2
-	total_dist = round(math.sqrt(dx * dx + dy * dy))
+	total_dist = (round(math.sqrt(dx * dx + dy * dy)))
 		
 	# Then calculating the distances between the nodes
 	for i in range(len(individual) - 2):
@@ -147,7 +147,7 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 
 		dx = x1 - x2
 		dy = y1 - y2
-		total_dist += round(math.sqrt(dx * dx + dy * dy))
+		total_dist += (round(math.sqrt(dx * dx + dy * dy)))
 
 	# The last distance is from the last node of the last route to the depot
 
@@ -159,20 +159,18 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 	y2 = vrp_data[0][3]
 	dx = x1 - x2
 	dy = y1 - y2
-	total_dist += round(math.sqrt(dx * dx + dy * dy))
+	total_dist += (round(math.sqrt(dx * dx + dy * dy)))
 	return(total_dist)
 
 # @guvectorize([(float32[:,:], float32[:], float32[:])], '(m,n),(p)->()')
 def fitness(vrp_data, individual):
-	first_node = np.zeros(4, dtype=np.float32)
-
-	prev = np.zeros(4, dtype=np.float32)
-	next_node = np.zeros(4, dtype=np.float32)
-
-	last_node = np.zeros(4, dtype=np.float32)
-
-	totaldist = distance(first_node, prev, next_node, last_node, individual, vrp_data)
-	return(totaldist)
+    first_node = np.zeros(4, dtype=np.float32)
+    prev = np.zeros(4, dtype=np.float32)
+    next_node = np.zeros(4, dtype=np.float32)
+    last_node = np.zeros(4, dtype=np.float32)
+    totaldist = distance(first_node, prev, next_node, last_node, individual, vrp_data)
+    no_of_vehicles = list(individual).count(0) - 1
+    return(no_of_vehicles*totaldist)
 
 #@jit(parallel=True)
 def adjust(individual, vrp_data, vrp_capacity):
@@ -388,42 +386,18 @@ pop = future_1.result()
 future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, vrp_capacity)
 pop = future_2.result()
 
-# pop = evolvePop(pop, vrp_data, iterations, vrp_capacity)
-# print('Final population: ', pop)
-
 # Selecting the best individual, which is the final solution
 better = list([])
-#bf = float('inf')
 
 def get_item(idx):
     return(idx[len(idx) - 1])
 individual = min(pop, key=get_item)
-#for individual in pop:
-#	f = individual[len(individual) - 1]
-#if f < bf:
-#	bf = f
 better = [0] + individual
 t = int(timer()-start)
 
 # Printing & plotting solution
 print ('Solution by GA:\n', better[:-1]+[0])
-
-# color = None
-# style = None
-# for i in range(len(better) - 1):
-#     if better[i] == 0:
-#         break
-#         print ('\n' + 'depot' + ' ', end='')
-#         # plotRoutes(nodeIdx, 'depot', depot_node, better)		
-#     else:
-#         break
-#         print (str(better[i]) + ' ', end='')
-        # plotRoutes(nodeIdx, 'city', vrp_data, better)
-
-    # plotRoutes(nodeIdx, 'route', vrp_data, better, i)
-
-# print ('depot')
-print ('\n'+'cost:', individual[len(individual) - 1])
+print ('\n'+'cost:', individual[-1]/(list(individual).count(0) - 1))
 # print('Time Elaplsed:', t, 's')
 
 # Plot solution:
@@ -442,7 +416,7 @@ for loc, i in enumerate(better[:-1]):
              , c='k', linestyle='--', alpha=0.3)
     else:
         line_1, = plt.plot([vrp_data[vrp_data[:,0]==i][0][2], vrp_data[0][2]],\
-         [vrp_data[vrp_data[:,0]==i][0][3], vrp_data[0][3]], label='GA only: %d'%individual[len(individual) - 1]\
+         [vrp_data[vrp_data[:,0]==i][0][3], vrp_data[0][3]], label='GA only: %d'%(individual[-1]/(list(individual).count(0) - 1))\
              , c='k', linestyle='--', alpha=0.3)
 
 plt.axis('equal')
