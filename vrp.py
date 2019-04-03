@@ -33,12 +33,6 @@ class vrp():
         else:
             newrow = np.array([label, demand, posX, posY], dtype=np.float32)
             self.nodes = np.vstack((self.nodes, newrow))
-    
-"""     def cleanUp(self):
-        #  clean up nodes with 0 or negative demands
-        newarr = self.nodes[(self.nodes[:,0] == 0)] 
-        newarr = np.vstack((newarr, self.nodes[(self.nodes[:,1] >= 0)]))
-        self.nodes = newarr """
 
 pop = []
 
@@ -118,7 +112,7 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 
 	dx = x1 - x2
 	dy = y1 - y2
-	total_dist = (round(math.sqrt(dx * dx + dy * dy)))
+	total_dist = (round(math.sqrt(dx * dx + dy * dy)))**2
 		
 	# Then calculating the distances between the nodes
 	for i in range(len(individual) - 2):
@@ -147,7 +141,7 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 
 		dx = x1 - x2
 		dy = y1 - y2
-		total_dist += (round(math.sqrt(dx * dx + dy * dy)))
+		total_dist = (round(math.sqrt(dx * dx + dy * dy)))**2
 
 	# The last distance is from the last node of the last route to the depot
 
@@ -159,7 +153,7 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 	y2 = vrp_data[0][3]
 	dx = x1 - x2
 	dy = y1 - y2
-	total_dist += (round(math.sqrt(dx * dx + dy * dy)))
+	total_dist = (round(math.sqrt(dx * dx + dy * dy)))**2
 	return(total_dist)
 
 # @guvectorize([(float32[:,:], float32[:], float32[:])], '(m,n),(p)->()')
@@ -168,9 +162,11 @@ def fitness(vrp_data, individual):
     prev = np.zeros(4, dtype=np.float32)
     next_node = np.zeros(4, dtype=np.float32)
     last_node = np.zeros(4, dtype=np.float32)
+
     totaldist = distance(first_node, prev, next_node, last_node, individual, vrp_data)
     no_of_vehicles = list(individual).count(0) - 1
-    return(no_of_vehicles*totaldist)
+
+    return(np.sqrt(totaldist/no_of_vehicles))
 
 #@jit(parallel=True)
 def adjust(individual, vrp_data, vrp_capacity):
@@ -340,29 +336,6 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         pop = nextPop
         # print('Population# %s min:' %i, pop)
     return (pop)
-
-## After processing the algorithm, now outputting it ##
-# Define plotting function:
-def plotRoutes(nodeIdx, routeType, vrp_data, better, i=None):
-    if routeType == 'depot':
-        plt.scatter(vrp_data[0,2], vrp_data[0,3],None,'r','x')
-    elif routeType == 'city':
-        plt.scatter(vrp_data[vrp_data[:,0]==nodeIdx][0,2], vrp_data[vrp_data[:,0]==nodeIdx][0,3],None,'b')
-        plt.annotate(str(vrp_data[vrp_data[:,0]==nodeIdx][0,2])+',\n'+str(vrp_data[vrp_data[:,0]==nodeIdx][0,1]), 
-					xy=(vrp_data[vrp_data[:,0]==nodeIdx][0,1], vrp_data[vrp_data[:,0]==nodeIdx][0,2]))
-    elif routeType == 'route':
-        if better[i] == 0:
-            global color
-            global style
-            color = random.choice(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
-            style = random.choice(['-', '--', '-.', ':'])
-        if i != len(better)-1:
-            nextCityIdx = better[i+1]
-        else:
-            nextCityIdx = 0
-        #plt.plot([vrp_data[vrp_data[:,0]==nodeIdx][0,2],vrp_data[vrp_data[:,0]==nextCityIdx][0,2]],
-				#[vrp_data[vrp_data[:,0]==nodeIdx][0,3], vrp_data[vrp_data[:,0]==nextCityIdx][0,3]], color+style)
-    return
 
 # depot_node = np.array(([[0, 0, 40, 40]]), dtype=np.float32) # Depot coordinate assignments
 vrp_capacity, vrp_data = readInput()
