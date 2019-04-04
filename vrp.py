@@ -39,7 +39,7 @@ pop = []
 def readInput():
 	# Create VRP object:
 	vrpManager = vrp()
-	vrpManager.addNode(0, 0, 40, 40) # Depot coordinate assignments
+	vrpManager.addNode(0, 0, 82, 76) # Depot coordinate assignments
 
 	## First reading the VRP from the input ##
 	print('Reading data file...', end='')
@@ -112,7 +112,7 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 
 	dx = x1 - x2
 	dy = y1 - y2
-	total_dist = (round(math.sqrt(dx * dx + dy * dy)))**2
+	total_dist = (round(math.sqrt(dx * dx + dy * dy)))
 		
 	# Then calculating the distances between the nodes
 	for i in range(len(individual) - 2):
@@ -141,7 +141,7 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 
 		dx = x1 - x2
 		dy = y1 - y2
-		total_dist = (round(math.sqrt(dx * dx + dy * dy)))**2
+		total_dist += (round(math.sqrt(dx * dx + dy * dy)))
 
 	# The last distance is from the last node of the last route to the depot
 
@@ -153,7 +153,7 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
 	y2 = vrp_data[0][3]
 	dx = x1 - x2
 	dy = y1 - y2
-	total_dist = (round(math.sqrt(dx * dx + dy * dy)))**2
+	total_dist += (round(math.sqrt(dx * dx + dy * dy)))
 	return(total_dist)
 
 # @guvectorize([(float32[:,:], float32[:], float32[:])], '(m,n),(p)->()')
@@ -164,34 +164,46 @@ def fitness(vrp_data, individual):
     last_node = np.zeros(4, dtype=np.float32)
 
     totaldist = distance(first_node, prev, next_node, last_node, individual, vrp_data)
-    no_of_vehicles = list(individual).count(0) - 1
+    no_of_vehicles = list(individual).count(0)
 
-    return(np.sqrt(totaldist/no_of_vehicles))
+    return(totaldist)
 
 #@jit(parallel=True)
 def adjust(individual, vrp_data, vrp_capacity):
-    # Create TEMP list to handle insert and remove of items (not supported for arrayes in GPU!!)
-    # Adjust repeated
-    repeated = True
-    while repeated:
-        repeated = False
-        for i1 in range(len(individual) - 1):
-            for i2 in range(i1):
-                if individual[i1] == individual[i2]:
-                    haveAll = True
-                    for i3 in range(len(vrp_data)):
-                        nodeId = vrp_data[i3][0]
-                        if nodeId not in individual: # ensure that All nodes (with demand > 0) are covered in each sigle solution
-                            individual[i1] = nodeId
-                            haveAll = False
-                            break
-                    if haveAll:
-                        mask = np.ones(len(individual), dtype=bool)
-                        mask[i1] = False
-                        individual = individual[mask]
-                    repeated = True
-                if repeated: break
-            if repeated: break
+    # Delete duplicate nodes
+    individual = individual.tolist()
+    individual = sorted(set(individual), key=individual.index)
+    # print('Before:', individual)
+
+    # Check the missing nodes and insert them randomly
+    missing_nodes = set(vrp_data[:,0]) - set(individual)
+    # print('Missing:', list(missing_nodes))
+    for node in missing_nodes:
+        individual.insert(random.randint(0, len(individual)-2), node)
+    # Delete zeros
+    individual.remove(0)
+    # print('After:', individual, len(individual))
+
+    # repeated = True
+    # while repeated:
+    #     repeated = False
+    #     for i1 in range(len(individual) - 1):
+    #         for i2 in range(i1):
+    #             if individual[i1] == individual[i2]:
+    #                 haveAll = True
+    #                 for i3 in range(len(vrp_data)):
+    #                     nodeId = vrp_data[i3][0]
+    #                     if nodeId not in individual: # ensure that All nodes (with demand > 0) are covered in each single solution
+    #                         individual[i1] = nodeId
+    #                         haveAll = False
+    #                         break
+    #                 if haveAll:
+    #                     mask = np.ones(len(individual), dtype=bool)
+    #                     mask[i1] = False
+    #                     individual = individual[mask]
+    #                 repeated = True
+    #             if repeated: break
+    #         if repeated: break
     # Adjust capacity exceed
     i = 0               # index
     reqcap = 0.0        # required capacity
@@ -204,14 +216,14 @@ def adjust(individual, vrp_data, vrp_capacity):
         i += 1
 
     # Adjust two consecutive depots
-    i = len(individual) - 2
-    while i >= 0:
-        if individual[i] == 0 and individual[i + 1] == 0:
-            mask = np.ones(len(individual), dtype=bool)
-            mask[i] = False
-            individual = individual[mask]
-        i -= 1
-    return individual.tolist()
+    # i = len(individual) - 2
+    # while i >= 0:
+    #     if individual[i] == 0 and individual[i + 1] == 0:
+    #         mask = np.ones(len(individual), dtype=bool)
+    #         mask[i] = False
+    #         individual = individual[mask]
+    #     i -= 1
+    return individual
     
 # Generating random initial population
 def initializePop(vrp_data, popsize, vrp_capacity):
@@ -222,8 +234,8 @@ def initializePop(vrp_data, popsize, vrp_capacity):
     for i in range(0, popsize):
         individual = nodes.copy()
         random.shuffle(individual)
+        individual.append(9999.0) # Any number != 0
         individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-        individual.append(0.0)
         fitness_val = fitness(np.asarray(vrp_data, dtype=np.float32), np.asarray(individual, dtype=np.float32))
         individual[len(individual)-1] = fitness_val
         popArr += [individual]
@@ -255,7 +267,7 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
 		# Each one of this iteration will generate two descendants individuals. 
 		# Therefore, to guarantee same population size, this will iterate half population size times
         # Also, we need to create a mask for uniform crossover
-        mask = []
+        # mask = []
         #for i in range(len(max(pop,key= lambda indiv: len(indiv)))):
         #for i in range(len(max(pop,key= lambda indiv: len(indiv)))//2):
         # for i in range(len(max(pop,key= lambda indiv: len(indiv)))//3):
@@ -360,17 +372,17 @@ future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, vrp_capacity)
 pop = future_2.result()
 
 # Selecting the best individual, which is the final solution
-better = list([])
+better = []
 
 def get_item(idx):
     return(idx[len(idx) - 1])
 individual = min(pop, key=get_item)
-better = [0] + individual
+better = [0] + list(individual[:-1]) if individual[0] != 0 else list(individual[:-1])
 t = int(timer()-start)
 
 # Printing & plotting solution
-print ('Solution by GA:\n', better[:-1]+[0])
-print ('\n'+'cost:', individual[-1]/(list(individual).count(0) - 1))
+print ('Solution by GA:\n', better)
+print ('Cost:', individual[-1])
 # print('Time Elaplsed:', t, 's')
 
 # Plot solution:
@@ -389,11 +401,11 @@ for loc, i in enumerate(better[:-1]):
              , c='k', linestyle='--', alpha=0.3)
     else:
         line_1, = plt.plot([vrp_data[vrp_data[:,0]==i][0][2], vrp_data[0][2]],\
-         [vrp_data[vrp_data[:,0]==i][0][3], vrp_data[0][3]], label='GA only: %d'%(individual[-1]/(list(individual).count(0) - 1))\
+         [vrp_data[vrp_data[:,0]==i][0][3], vrp_data[0][3]], label='GA only: %d'%individual[-1]\
              , c='k', linestyle='--', alpha=0.3)
 
 plt.axis('equal')
 
 # Solve routes as TSP:
 import tsp_cplex as tsp
-tsp.solve(better[:-1], vrp_data, line_1)
+tsp.solve(better, vrp_data, line_1)

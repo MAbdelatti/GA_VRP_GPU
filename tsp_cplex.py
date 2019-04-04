@@ -7,7 +7,6 @@ import os
 
 def solve(better, vrp_data, line_1):
     line_2 = None
-
     print('\nSolving the routes as TSP...')   
     # Divide solution into routes:
     idx_lo= 0
@@ -23,6 +22,7 @@ def solve(better, vrp_data, line_1):
     cost = 0
     sorted_best = []
     for route in routes:
+        route = list(route)
         active_arcs = []
         # Problem definition
         n = len(route) # Total number of cities
