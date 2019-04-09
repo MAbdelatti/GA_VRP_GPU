@@ -373,7 +373,7 @@ better = [1] + list(individual[:-1]) if individual[0] != 1 else list(individual[
 t = int(timer()-start)
 
 # Printing & plotting solution
-print ('Solution by GA:\n', better)
+print ('Solution by GA:\n', [x - 1 for x in better])
 print ('Cost:', individual[-1])
 # print('Time Elaplsed:', t, 's')
 
@@ -400,4 +400,4 @@ plt.axis('equal')
 
 # Solve routes as TSP:
 import tsp_cplex as tsp
-tsp.solve(better, vrp_data, line_1)
+tsp.solve([x - 1 for x in better], vrp_data, line_1)
