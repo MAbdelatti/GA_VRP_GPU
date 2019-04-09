@@ -59,8 +59,8 @@ def solve(better, vrp_data, line_1):
             mdl.minimize(mdl.sum(c[i,j]*x[i,j] for i, j in X if i!=j))
 
             # Add constraints:
-            mdl.add_constraints(mdl.sum(x[i,j] for i in route if i != j and (i != 0 or j!=0)) == 1 for j in route) # Each point must be visited
-            mdl.add_constraints(mdl.sum(x[i,j] for j in route if j != i and (i != 0 or j!=0)) == 1 for i in route) # Each point must be left
+            mdl.add_constraints(mdl.sum(x[i,j] for i in route if i != j and (i != 1 or j!=1)) == 1 for j in route) # Each point must be visited
+            mdl.add_constraints(mdl.sum(x[i,j] for j in route if j != i and (i != 1 or j!=1)) == 1 for i in route) # Each point must be left
             mdl.add_indicator_constraints(mdl.indicator_constraint(x[i,j], u[i]-u[j]+(n-1)*x[i,j] <= n-2) for i, j in X if i!=0 and j!=0 and i!=j)
             # mdl.parameters.timelimit = 15 # Add running time limit
 
@@ -81,7 +81,7 @@ def solve(better, vrp_data, line_1):
                     c='b', alpha=0.7)
             
             # Reshape solution (format only)
-            key = 0
+            key = 1
             to_break = False
             for i in range(len(active_arcs[0])):
                 if to_break: break
@@ -90,9 +90,9 @@ def solve(better, vrp_data, line_1):
                         pair = element
                         sorted_best.append(pair[0])
                         key = pair[1]
-                        if key == 0: to_break = True; break   
+                        if key == 1: to_break = True; break   
 
-    sorted_best.append(0)
+    sorted_best.append(1)
     print('Solution:\n', sorted_best)
     print('Cost:', cost)
 
