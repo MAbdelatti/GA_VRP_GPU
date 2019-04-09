@@ -8,7 +8,9 @@ import os
 def solve(better, vrp_data, line_1):
     line_2 = None
     print('\nSolving the routes as TSP...')
-    vrp_data[0,0] = 0
+    for i in range(len(vrp_data[:,0])):
+        vrp_data[i,0] = vrp_data[i,0] - 1
+
     # Divide solution into routes:
     idx_lo= 0
     routes = []
