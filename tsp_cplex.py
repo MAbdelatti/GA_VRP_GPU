@@ -13,11 +13,12 @@ def solve(better, vrp_data, line_1):
     routes = []
 
     for i, val in enumerate(better):
-        if (val == 0 and i!=0): 
+        if (val == 1 and i!=0): 
             idx_hi = i 
             routes.append(better[idx_lo:idx_hi])
             idx_lo = idx_hi
     routes.append(better[idx_hi:])
+    print(routes)
     
     cost = 0
     sorted_best = []

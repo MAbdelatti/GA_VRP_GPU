@@ -400,4 +400,4 @@ plt.axis('equal')
 
 # Solve routes as TSP:
 import tsp_cplex as tsp
-# tsp.solve(better, vrp_data, line_1)
+tsp.solve(better, vrp_data, line_1)
