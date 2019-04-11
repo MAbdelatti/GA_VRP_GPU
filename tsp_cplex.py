@@ -4,12 +4,12 @@ import matplotlib.pyplot as plt
 
 import sys
 import os
+from timeit import default_timer as timer
 
 def solve(better, vrp_data, line_1):
+    tsp_time = timer()
     line_2 = None
     print('\nSolving the routes as TSP...')
-    for i in range(len(vrp_data[:,0])):
-        vrp_data[i,0] = vrp_data[i,0] - 1
 
     # Divide solution into routes:
     idx_lo= 0
@@ -29,7 +29,6 @@ def solve(better, vrp_data, line_1):
         active_arcs = []
         # Problem definition
         n = len(route) # Total number of cities
-      
         loc_x, loc_y = [], []
         for i in route:
             loc_x.append(vrp_data[vrp_data[:,0]==i][0][2])
@@ -97,9 +96,9 @@ def solve(better, vrp_data, line_1):
     sorted_best.append(0)
     print('Solution:\n', sorted_best)
     print('Cost:', cost)
+    print('Elapsed time:', timer() - tsp_time, 'Secs')
 
     plt.legend(handles=[line_1, line_2],labels=[line_1.get_label(),'With TSP: %d'%cost])
-
     plt.show()
 
 # float32 = np.float32

@@ -35,8 +35,6 @@ pop = []
 def readInput():
 	# Create VRP object:
     vrpManager = vrp()
-    # vrpManager.addNode(0, 0, 82, 76) # Depot coordinate assignments
-
 	## First reading the VRP from the input ##
     print('Reading data file...', end=' ')
     fo = open(sys.argv[3],"r")
@@ -400,4 +398,5 @@ plt.axis('equal')
 
 # Solve routes as TSP:
 import tsp_cplex as tsp
-tsp.solve([x - 1 for x in better], vrp_data, line_1)
+# tsp.solve([x - 1 for x in better], vrp_data, line_1)
+tsp.solve(list(np.subtract(better, [1]*len(better))), np.subtract(vrp_data, [[1, 0, 0, 0]]*vrp_data.shape[0]), line_1)
