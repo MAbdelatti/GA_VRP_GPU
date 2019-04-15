@@ -232,8 +232,8 @@ def initializePop(vrp_data, popsize, vrp_capacity):
     return(popArr)
 
 def evolvePop(pop, vrp_data, iterations, vrp_capacity):
-    def get_item(elem):
-        return elem[len(elem)-1]
+    # def get_item(elem):
+    #     return elem[len(elem)-1]
 
     old_fitness = 0.0
     tolerance_val = 0.0 # indication of convergence
@@ -242,7 +242,7 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         nextPop = []
         elite_count = len(pop)//20      # top 5% of the parents will remain in the new generation
         sorted_pop = pop.copy()
-        sorted_pop.sort(key=get_item)
+        sorted_pop.sort(key= lambda elem: elem[-1])
 
         # print('Population# %s min:' %i, sorted_pop[0][len(sorted_pop[0])-1])
 

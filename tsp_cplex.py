@@ -22,7 +22,7 @@ def solve(better, vrp_data, line_1):
             idx_lo = idx_hi
     routes.append(better[idx_hi:])
     
-    cost = 0
+    total_cost = 0
     sorted_best = []
     for route in routes:
         route = list(route)
@@ -36,8 +36,8 @@ def solve(better, vrp_data, line_1):
 
         # List of Arcs
         X = set([(i, j) for i in route for j in route if i!=j])
-        # Dictionary of distances/costs
-        c = {(i,j): round(np.hypot(loc_x[route.index(i)]-loc_x[route.index(j)], loc_y[route.index(i)]-loc_y[route.index(j)])) for i, j in X} 
+        # Dictionary of distances/total_costs
+        c = {(i,j): round(np.hypot(loc_x[route.index(i)]-loc_x[route.index(j)], loc_y[route.index(i)]-loc_y[route.index(j)])) for i, j in X}
 
         # Optimize routes that have more than 2 cities only
         if len(route) == 2:
@@ -59,6 +59,7 @@ def solve(better, vrp_data, line_1):
             # Define objective function:
             mdl.minimize(mdl.sum(c[i,j]*x[i,j] for i, j in X if i!=j))
 
+
             # Add constraints:
             mdl.add_constraints(mdl.sum(x[i,j] for i in route if i != j and (i != 0 or j!=0)) == 1 for j in route) # Each point must be visited
             mdl.add_constraints(mdl.sum(x[i,j] for j in route if j != i and (i != 0 or j!=0)) == 1 for i in route) # Each point must be left
@@ -69,11 +70,11 @@ def solve(better, vrp_data, line_1):
             solution = mdl.solve(log_output=False)
            
             try:
-                cost += solution._objective
+                total_cost += solution._objective
             except:
                 print(solution)
                 print('route:', route)
-                print('cost:', cost)
+                print('cost:', total_cost)
             active_arcs.append([a for a in X if x[a].solution_value > 0.9]) 
 
             # Plot solution
@@ -95,10 +96,10 @@ def solve(better, vrp_data, line_1):
 
     sorted_best.append(0)
     print('Solution:\n', sorted_best)
-    print('Cost:', cost)
+    print('Cost:', total_cost)
     print('Elapsed time:', timer() - tsp_time, 'Secs')
 
-    plt.legend(handles=[line_1, line_2],labels=[line_1.get_label(),'With TSP: %d'%cost])
+    plt.legend(handles=[line_1, line_2],labels=[line_1.get_label(),'With TSP: %d'%total_cost])
     plt.show()
 
 # float32 = np.float32
