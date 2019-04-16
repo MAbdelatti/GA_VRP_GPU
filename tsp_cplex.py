@@ -25,6 +25,7 @@ def solve(better, vrp_data, line_1):
     total_cost = 0
     sorted_best = []
     for route in routes:
+        cost = 0
         route = list(route)
         active_arcs = []
         # Problem definition
@@ -34,23 +35,28 @@ def solve(better, vrp_data, line_1):
             loc_x.append(vrp_data[vrp_data[:,0]==i][0][2])
             loc_y.append(vrp_data[vrp_data[:,0]==i][0][3])
 
+        #  Calculate the cost of each individual route
+        for i in range(len(route)):
+            if i < len(route) - 1:
+                cost += round(np.hypot(loc_x[i]-loc_x[i+1], loc_y[i]-loc_y[i+1]))
+            else:
+                cost += round(np.hypot(loc_x[i]-loc_x[0], loc_y[i]-loc_y[0]))
+
         # List of Arcs
         X = set([(i, j) for i in route for j in route if i!=j])
         # Dictionary of distances/total_costs
         c = {(i,j): round(np.hypot(loc_x[route.index(i)]-loc_x[route.index(j)], loc_y[route.index(i)]-loc_y[route.index(j)])) for i, j in X}
-
         # Optimize routes that have more than 2 cities only
         if len(route) == 2:
             route.sort()
             sorted_best.append(route[0])
             sorted_best.append(route[1])
-            cost += c[route[0], route[1]] * 2
+            total_cost += c[route[0], route[1]] * 2
             plt.plot([vrp_data[vrp_data[:,0]==route[0]][0][2], vrp_data[vrp_data[:,0]==route[1]][0][2]],\
                      [vrp_data[vrp_data[:,0]==route[0]][0][3], vrp_data[vrp_data[:,0]==route[1]][0][3]], c='b', alpha=0.7)
         else:
             # Create a CPLEX model:
             mdl = Model('TSP')
-
 
             # Define arcs:
             x = mdl.binary_var_dict(X, name= 'x')
@@ -58,7 +64,7 @@ def solve(better, vrp_data, line_1):
 
             # Define objective function:
             mdl.minimize(mdl.sum(c[i,j]*x[i,j] for i, j in X if i!=j))
-
+            mdl.parameters.simplex.limits.upperobj(cost)
 
             # Add constraints:
             mdl.add_constraints(mdl.sum(x[i,j] for i in route if i != j and (i != 0 or j!=0)) == 1 for j in route) # Each point must be visited

@@ -83,70 +83,85 @@ def readInput():
                             line = lines[i]
                             if line.upper().startswith('DEPOT_SECTION'): break
                         if line.upper().startswith('DEPOT_SECTION'):
-                            vrpManager.nodes = np.delete(vrpManager.nodes, 0, 0)
+                            vrpManager.nodes = np.delete(vrpManager.nodes, 0, 0)                          
                             print('Done.')
                             return(vrpManager.capacity, vrpManager.nodes)
 
+def filter_out(vrp_capacity, vrp_data):
+    # Temporarily, drop the nodes with (demands + any other demand) > capcity
+    # Will be added after the GA finshes at the end
+    dropped_nodes = [vrp_data[0].tolist()]
+    dropped_routes = []
+    for node in vrp_data[1:]:
+        node_capacity = np.add([[0, node[1], 0, 0]]*(vrp_data.shape[0]-1), vrp_data[1:])
+        if node_capacity[:,1].min() > vrp_capacity:
+            # Aha! a node capacity + another capacity > vrp_capacity, drop it temporariy
+            vrp_data = np.delete(vrp_data, np.where(vrp_data[:,0]==node[0]),0)
+            dropped_nodes.append(node.tolist())
+            dropped_routes.extend([1, node[0]])
+    dropped_routes.append(0.0)
+    return(vrp_data, dropped_nodes, dropped_routes)
+
 # @guvectorize([(float32[:], float32[:], float32[:], float32[:], float32[:], float32[:], float32[:,:], float32[:])], '(m),(m),(m),(m),(m),(n),(o,p)->()', target='cuda')
 def distance(first_node, prev, next_node, last_node, individual, vrp_data):
-	total_dist = 0
+    total_dist = 0
 	# The first distance is from depot to the first node of the first route
-	if individual[0] != 1:
-		for k in range(len(vrp_data)):
-			if vrp_data[k][0] == individual[0]:
-				first_node = vrp_data[k]
-				break
-	else:
-		first_node = vrp_data[0]
+    if individual[0] != 1:
+        for k in range(len(vrp_data)):
+            if vrp_data[k][0] == individual[0]:
+                first_node = vrp_data[k]
+                break
+    else:
+        first_node = vrp_data[0]
 
-	x1 = vrp_data[0][2]
-	x2 = first_node[2]
-	y1 = vrp_data[0][3]
-	y2 = first_node[3]
+    x1 = vrp_data[0][2]
+    x2 = first_node[2]
+    y1 = vrp_data[0][3]
+    y2 = first_node[3]
 
-	dx = x1 - x2
-	dy = y1 - y2
-	total_dist = (round(math.sqrt(dx * dx + dy * dy)))
+    dx = x1 - x2
+    dy = y1 - y2
+    total_dist = (round(math.sqrt(dx * dx + dy * dy)))
 		
 	# Then calculating the distances between the nodes
-	for i in range(len(individual) - 2):
-		if individual[i] != 1:
-			for k in range(len(vrp_data)):
-				if vrp_data[k][0] == individual[i]:
-					prev = vrp_data[k]
-					break
-		else:
-			prev = vrp_data[0]
+    for i in range(len(individual) - 2):
+        if individual[i] != 1:
+            for k in range(len(vrp_data)):
+                if vrp_data[k][0] == individual[i]:
+                    prev = vrp_data[k]
+                    break
+        else:
+            prev = vrp_data[0]
 
-		if individual[i+1] != 1:
-			for k in range(len(vrp_data)):
-				if vrp_data[k][0] == individual[i+1]:
-					next_node = vrp_data[k]
-					break
-		else:
-			next_node = vrp_data[0]
+        if individual[i+1] != 1:
+            for k in range(len(vrp_data)):
+                if vrp_data[k][0] == individual[i+1]:
+                    next_node = vrp_data[k]
+                    break
+        else:
+            next_node = vrp_data[0]
 
-		x1 = prev[2]
-		x2 = next_node[2]
-		y1 = prev[3]
-		y2 = next_node[3]
+        x1 = prev[2]
+        x2 = next_node[2]
+        y1 = prev[3]
+        y2 = next_node[3]
 
-		dx = x1 - x2
-		dy = y1 - y2
-		total_dist += (round(math.sqrt(dx * dx + dy * dy)))
+        dx = x1 - x2
+        dy = y1 - y2
+        total_dist += (round(math.sqrt(dx * dx + dy * dy)))
 
 	# The last distance is from the last node of the last route to the depot
 
-	last_node = next_node
+    last_node = next_node
 
-	x1 = last_node[2]
-	x2 = vrp_data[0][2]
-	y1 = last_node[3]
-	y2 = vrp_data[0][3]
-	dx = x1 - x2
-	dy = y1 - y2
-	total_dist += (round(math.sqrt(dx * dx + dy * dy)))
-	return(total_dist)
+    x1 = last_node[2]
+    x2 = vrp_data[0][2]
+    y1 = last_node[3]
+    y2 = vrp_data[0][3]
+    dx = x1 - x2
+    dy = y1 - y2
+    total_dist += (round(math.sqrt(dx * dx + dy * dy)))
+    return(total_dist)
 
 # @guvectorize([(float32[:,:], float32[:], float32[:])], '(m,n),(p)->()')
 def fitness(vrp_data, individual):
@@ -227,14 +242,11 @@ def initializePop(vrp_data, popsize, vrp_capacity):
         individual.append(9999.0) # Any number != 1
         individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
         fitness_val = fitness(np.asarray(vrp_data, dtype=np.float32), np.asarray(individual, dtype=np.float32))
-        individual[len(individual)-1] = fitness_val
+        individual[-1] = fitness_val
         popArr += [individual]
     return(popArr)
 
 def evolvePop(pop, vrp_data, iterations, vrp_capacity):
-    # def get_item(elem):
-    #     return elem[len(elem)-1]
-
     old_fitness = 0.0
     tolerance_val = 0.0 # indication of convergence
     # Running the genetic algorithm
@@ -243,8 +255,6 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         elite_count = len(pop)//20      # top 5% of the parents will remain in the new generation
         sorted_pop = pop.copy()
         sorted_pop.sort(key= lambda elem: elem[-1])
-
-        # print('Population# %s min:' %i, sorted_pop[0][len(sorted_pop[0])-1])
 
         nextPop = sorted_pop[:elite_count]
         current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
@@ -331,16 +341,19 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
             individual = nextPop[k]
             individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
             fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(individual, np.float32))
-            individual[len(individual)-1] = fitness_val
+            individual[-1] = fitness_val
             nextPop[k] = individual
 		# Updating population generation
         random.shuffle(nextPop)
         pop = nextPop
-        # print('Population# %s min:' %i, pop)
     return (pop)
 
-# depot_node = np.array(([[0, 0, 40, 40]]), dtype=np.float32) # Depot coordinate assignments
-vrp_capacity, vrp_data = readInput()
+vrp_capacity, data = readInput()
+vrp_data, dropped_nodes, dropped_routes = filter_out(vrp_capacity, data)
+extended_cost = fitness(dropped_nodes, dropped_routes)
+
+data = np.subtract(data, [[1, 0, 0, 0]]*data.shape[0])
+
 popsize = int(sys.argv[1])
 iterations = int(sys.argv[2])
 
@@ -364,39 +377,44 @@ pop = future_2.result()
 # Selecting the best individual, which is the final solution
 better = []
 
-def get_item(idx):
-    return(idx[len(idx) - 1])
-individual = min(pop, key=get_item)
+individual = min(pop, key= lambda idx: idx[len(idx) - 1])
+individual = individual.tolist()
+
+# Add the dropped routes & cost to the end of the best solution
+individual[-1:-1] = dropped_routes[:-1]
+individual[-1] += extended_cost
+
 better = [1] + list(individual[:-1]) if individual[0] != 1 else list(individual[:-1])
+better = list(np.subtract(better, [1]*len(better)))
+
 t = int(timer()-start)
 
 # Printing & plotting solution
-print ('Solution by GA:\n', [x - 1 for x in better])
+print ('Solution by GA:\n',  better)
 print ('Cost:', individual[-1])
 # print('Time Elaplsed:', t, 's')
 
 # Plot solution:
-plt.scatter(vrp_data[1:][:,2], vrp_data[1:][:,3], c='b')
-plt.plot(vrp_data[0][2], vrp_data[0][3], c='r', marker='s')
+plt.scatter(data[1:][:,2], data[1:][:,3], c='b')
+plt.plot(data[0][2], vrp_data[0][3], c='r', marker='s')
 
 line_1 = None
-for loc, i in enumerate(better[:-1]):
+for loc, i in enumerate(better):
     if i != 1:
         # Text annotations for data points:
-        plt.annotate(('%d\n"%d"'%(i, vrp_data[vrp_data[:,0]==i][0][1])), (vrp_data[vrp_data[:,0]==i][0][2]+1,vrp_data[vrp_data[:,0]==i][0][3]))
-    if loc != len(better)-2:
+        plt.annotate(('%d\n"%d"'%(i, data[data[:,0]==i][0][1])), (data[data[:,0]==i][0][2]+1,data[data[:,0]==i][0][3]))
+    if loc != len(better)-1:
         # Plot routes
-        plt.plot([vrp_data[vrp_data[:,0]==i][0][2], vrp_data[vrp_data[:,0]==better[loc+1]][0][2]],\
-         [vrp_data[vrp_data[:,0]==i][0][3], vrp_data[vrp_data[:,0]==better[loc+1]][0][3]]\
+        plt.plot([data[data[:,0]==i][0][2], data[data[:,0]==better[loc+1]][0][2]],\
+         [data[data[:,0]==i][0][3], data[data[:,0]==better[loc+1]][0][3]]\
              , c='k', linestyle='--', alpha=0.3)
     else:
-        line_1, = plt.plot([vrp_data[vrp_data[:,0]==i][0][2], vrp_data[0][2]],\
-         [vrp_data[vrp_data[:,0]==i][0][3], vrp_data[0][3]], label='GA only: %d'%individual[-1]\
+        line_1, = plt.plot([data[data[:,0]==i][0][2], data[0][2]],\
+         [data[data[:,0]==i][0][3], data[0][3]], label='GA only: %d'%individual[-1]\
              , c='k', linestyle='--', alpha=0.3)
 
 plt.axis('equal')
 
 # Solve routes as TSP:
 import tsp_cplex as tsp
-# tsp.solve([x - 1 for x in better], vrp_data, line_1)
-tsp.solve(list(np.subtract(better, [1]*len(better))), np.subtract(vrp_data, [[1, 0, 0, 0]]*vrp_data.shape[0]), line_1)
+tsp.solve(better, data, line_1)
