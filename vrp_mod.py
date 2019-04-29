@@ -10,6 +10,7 @@ from tqdm import tqdm
 # from numba import vectorize, guvectorize, jit, cuda
 
 from timeit import default_timer as timer
+from multiprocessing import Pool, Lock
 
 pr = cProfile.Profile()
 pr.enable
@@ -263,6 +264,65 @@ def initializePop(vrp_data, popsize, vrp_capacity):
         popArr += [individual]
     return(popArr)
 
+def cross_over(list_of_params):
+    pop = list_of_params[0]
+    nextPop = list_of_params[1]
+    elite_count = list_of_params[2]
+    rounded_val = round(((len(pop))-elite_count) / 2)
+
+    for j in range(rounded_val):
+        print(j)
+    #     # Selecting randomly 4 individuals to select 2 parents by a binary tournament
+    #     parentIds = {0}
+    #     while len(parentIds) < 4:
+    #         parentIds |= {random.randint(0, len(pop) - 1)}
+
+    #     parentIds = list(parentIds)
+    #     # Selecting 2 parents with the binary tournament
+    #     parent1 = list(pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]])
+    #     parent2 = list(pop[parentIds[2]] if pop[parentIds[2]][len(pop[parentIds[2]])-1] < pop[parentIds[3]][len(pop[parentIds[3]])-1] else pop[parentIds[3]])
+
+    #     child1 = parent1.copy()
+    #     child2 = parent2.copy()
+
+    #     # Performing Two-Point crossover and generating two children
+    #     # Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
+
+    #     cutIdx = [0] * ((min(len(parent1) - 2, len(parent2) - 2))//5 - 1)
+    #     for k in range(0, len(cutIdx)):
+    #         cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
+    #         while cutIdx[k] in cutIdx[:k]:
+    #             cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
+    #     cutIdx.sort()
+
+    #     for k in range(0, len(cutIdx), 2):
+    #         if len(cutIdx) %2 == 1 and k == len(cutIdx) - 1: # Odd number
+    #             child1[cutIdx[k]:] = child2[cutIdx[k]:]
+    #             child2[cutIdx[k]:] = child1[cutIdx[k]:]
+    #         else:                       
+    #             child1[cutIdx[k]:cutIdx[k + 1]] = child2[cutIdx[k]:cutIdx[k + 1]]
+    #             child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]
+
+    #     nextPop = nextPop + [child1, child2]
+
+    # return nextPop     
+        # Performing Uniform Crossover
+        # for i in range(min(len(parent1) - 1, len(parent2) - 1)//3):
+        #   if mask[i] == 1:
+        #    #child1[i], child2[i] = child2[i], child1[i]
+
+        #     #child1[2*i], child2[2*i] = child2[2*i], child1[2*i]
+        #     #child1[2*i+1], child2[2*i+1] = child2[2*i+1], child1[2*i+1]
+            
+        #     child1[3*i], child2[3*i] = child2[3*i], child1[3*i]
+        #     child1[3*i+1], child2[3*i+1] = child2[3*i+1], child1[3*i+1]
+        #     child1[3*i+2], child2[3*i+2] = child2[3*i+2], child1[3*i+2]
+
+            #child1[4*i], child2[4*i] = child2[4*i], child1[4*i]
+            #child1[4*i+1], child2[4*i+1] = child2[4*i+1], child1[4*i+1]
+            #child1[4*i+2], child2[4*i+2] = child2[4*i+2], child1[4*i+2]
+            #child1[4*i+3], child2[4*i+3] = child2[4*i+3], child1[4*i+3]
+
 def evolvePop(pop, vrp_data, iterations, vrp_capacity):
     old_fitness = 0.0
     tolerance_val = 0.0 # indication of convergence
@@ -291,56 +351,12 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         # for i in range(len(max(pop,key= lambda indiv: len(indiv)))//3):
         #for i in range(len(max(pop,key= lambda indiv: len(indiv)))//4):
             # mask.append(random.randint(0, 1))
-
-        for j in range(round(((len(pop))-elite_count) / 2)):
-            # Selecting randomly 4 individuals to select 2 parents by a binary tournament
-            parentIds = {0}
-            while len(parentIds) < 4:
-                parentIds |= {random.randint(0, len(pop) - 1)}
-
-            parentIds = list(parentIds)
-            # Selecting 2 parents with the binary tournament
-            parent1 = list(pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]])
-            parent2 = list(pop[parentIds[2]] if pop[parentIds[2]][len(pop[parentIds[2]])-1] < pop[parentIds[3]][len(pop[parentIds[3]])-1] else pop[parentIds[3]])
-
-            child1 = parent1.copy()
-            child2 = parent2.copy()
-
-            # Performing Two-Point crossover and generating two children
-            # Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
-
-            cutIdx = [0] * ((min(len(parent1) - 2, len(parent2) - 2))//5 - 1)
-            for k in range(0, len(cutIdx)):
-                cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
-                while cutIdx[k] in cutIdx[:k]:
-                    cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
-            cutIdx.sort()
-
-            for k in range(0, len(cutIdx), 2):
-                if len(cutIdx) %2 == 1 and k == len(cutIdx) - 1: # Odd number
-                    child1[cutIdx[k]:] = child2[cutIdx[k]:]
-                    child2[cutIdx[k]:] = child1[cutIdx[k]:]
-                else:                       
-                    child1[cutIdx[k]:cutIdx[k + 1]] = child2[cutIdx[k]:cutIdx[k + 1]]
-                    child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]        
-            # Performing Uniform Crossover
-            # for i in range(min(len(parent1) - 1, len(parent2) - 1)//3):
-            #   if mask[i] == 1:
-            #    #child1[i], child2[i] = child2[i], child1[i]
-
-            #     #child1[2*i], child2[2*i] = child2[2*i], child1[2*i]
-            #     #child1[2*i+1], child2[2*i+1] = child2[2*i+1], child1[2*i+1]
-                   
-            #     child1[3*i], child2[3*i] = child2[3*i], child1[3*i]
-            #     child1[3*i+1], child2[3*i+1] = child2[3*i+1], child1[3*i+1]
-            #     child1[3*i+2], child2[3*i+2] = child2[3*i+2], child1[3*i+2]
-
-                #child1[4*i], child2[4*i] = child2[4*i], child1[4*i]
-                #child1[4*i+1], child2[4*i+1] = child2[4*i+1], child1[4*i+1]
-                #child1[4*i+2], child2[4*i+2] = child2[4*i+2], child1[4*i+2]
-                #child1[4*i+3], child2[4*i+3] = child2[4*i+3], child1[4*i+3]
-
-            nextPop = nextPop + [child1, child2]
+        p = Pool()
+        list_of_params = [pop, nextPop, elite_count]
+        result = p.map(cross_over, (list_of_params,))
+        p.close()
+        p.join()
+        nextPop = result
 		# Doing mutation: swapping two positions in one of the individuals, with 1:5 probability
         if random.randint(1, 5) == 1:
             # Random swap mutation
