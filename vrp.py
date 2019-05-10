@@ -269,6 +269,8 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
     # Running the genetic algorithm
     for i in tqdm(range(iterations)):
         nextPop = []
+        nextPop_set = set()
+
         elite_count = len(pop)//20      # top 5% of the parents will remain in the new generation
         sorted_pop = pop.copy()
         sorted_pop.sort(key= lambda elem: elem[-1])
@@ -292,11 +294,14 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         #for i in range(len(max(pop,key= lambda indiv: len(indiv)))//4):
             # mask.append(random.randint(0, 1))
 
-        for j in range(round(((len(pop))-elite_count) / 2)):
+
+
+        # for j in range(round(((len(pop))-elite_count) / 2)):
+        while len(nextPop) < len(pop):
             # Selecting randomly 4 individuals to select 2 parents by a binary tournament
             parentIds = {0}
             while len(parentIds) < 4:
-                parentIds |= {random.randint(0, len(pop) - 1)}
+                parentIds |= {random.randint(0, len(pop) - 1)} # Union operator
 
             parentIds = list(parentIds)
             # Selecting 2 parents with the binary tournament
@@ -315,7 +320,6 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
                 while cutIdx[k] in cutIdx[:k]:
                     cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
             cutIdx.sort()
-
             for k in range(0, len(cutIdx), 2):
                 if len(cutIdx) %2 == 1 and k == len(cutIdx) - 1: # Odd number
                     child1[cutIdx[k]:] = child2[cutIdx[k]:]
@@ -339,10 +343,10 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
                 #child1[4*i+1], child2[4*i+1] = child2[4*i+1], child1[4*i+1]
                 #child1[4*i+2], child2[4*i+2] = child2[4*i+2], child1[4*i+2]
                 #child1[4*i+3], child2[4*i+3] = child2[4*i+3], child1[4*i+3]
-
             nextPop = nextPop + [child1, child2]
+
 		# Doing mutation: swapping two positions in one of the individuals, with 1:5 probability
-        if random.randint(1, 5) == 1:
+        if random.randint(1, 15) == 1:
             # Random swap mutation
             x = random.randint(0, len(nextPop) - 1)
             ptomutate = nextPop[x]
@@ -354,6 +358,15 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
             while ptomutate[i2] == 1:
                 i2 = random.randint(0, len(ptomutate) - 2)
             ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+            
+            ''' Trying new mutation algorithm'''
+            # perform a random shufle mutation
+            # idx = -int(len(nextPop)/3)
+            # for indiv in nextPop[idx]:
+            #     try:
+            #         random.shuffle(indiv)
+            #     except:
+            #         pass
 
 		# Adjusting individuals
         for k in range(len(nextPop)):
@@ -361,9 +374,18 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
             individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
             fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(individual, np.float32))
             individual[-1] = fitness_val
+
             nextPop[k] = individual
+            nextPop_set.add(tuple(individual))
+
+
+        # nextPop = list(nextPop_set)
+
+
 		# Updating population generation
-        random.shuffle(nextPop)
+
+        # random.shuffle(nextPop)
+        nextPop = sorted(nextPop, key= lambda elem: elem[-1])
         pop = nextPop
     return (pop)
 
@@ -392,7 +414,7 @@ pop = future_2.result()
 # Selecting the best individual, which is the final solution
 better = []
 individual = min(pop, key= lambda idx: idx[len(idx) - 1])
-individual = individual.tolist()
+individual = list(individual)
 
 # Add the dropped routes & cost to the end of the best solution
 individual[-1:-1] = dropped_routes[:-1]
@@ -438,4 +460,4 @@ plt.axis('equal')
 
 # Solve routes as TSP:
 import tsp_cplex as tsp
-tsp.solve(better, data, line_1)
+# tsp.solve(better, data, line_1)
