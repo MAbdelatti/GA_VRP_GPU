@@ -406,6 +406,7 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         if abs(current_fitness - old_fitness) > tolerance_val:
             old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
 
+        convergenceInd = 0
         # for j in range(round(((len(pop))-elite_count) / 2)):
         while len(nextPop_set) < len(pop):
             # Selecting randomly 4 individuals to select 2 parents by a binary tournament
@@ -471,10 +472,21 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
             fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))
             child2[-1] = fitness_val
 
-            # nextPop = nextPop + [child1, child2]
+            # Add children to population iff they are better than parents
+            # if (child1[-1] > parent1[-1]) | (child1[-1] > parent2[-1]):
             nextPop_set.add(tuple(child1))
+            # else:
+            #     convergenceInd += 1
+            #     if convergenceInd >= 500:
+            #         nextPop_set.add(tuple(parent1))
+            
+            # if (child2[-1] > parent1[-1]) | (child2[-1] > parent2[-1]):
             nextPop_set.add(tuple(child2))
-
+            # else:
+            #     convergenceInd += 1
+            #     if convergenceInd >= 500:
+            #         nextPop_set.add(tuple(parent2))                
+            #         convergenceInd = 0
 
         nextPop = list(nextPop_set)
 
