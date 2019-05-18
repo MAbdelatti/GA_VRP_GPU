@@ -299,9 +299,9 @@ def evolvePop_old(pop, vrp_data, iterations, vrp_capacity):
         # for j in range(round(((len(pop))-elite_count) / 2)):
         while len(nextPop) < len(pop):
             # Selecting randomly 4 individuals to select 2 parents by a binary tournament
-            parentIds = {0}
+            parentIds = set()
             while len(parentIds) < 4:
-                parentIds |= {random.randint(0, len(pop) - 1)} # Union operator
+                parentIds.add(random.randint(0, len(pop) - elite_count)) # Drop the worst 5% from reproduction
 
             parentIds = list(parentIds)
             # Selecting 2 parents with the binary tournament
@@ -345,7 +345,7 @@ def evolvePop_old(pop, vrp_data, iterations, vrp_capacity):
                 #child1[4*i+3], child2[4*i+3] = child2[4*i+3], child1[4*i+3]
             nextPop = nextPop + [child1, child2]
 
-		# Doing mutation: swapping two positions in one of the individuals, with 1:5 probability
+		# Doing mutation: swapping two positions in one of the individuals, with 1:10 probability
         if random.randint(1, 15) == 1:
             # Random swap mutation
             x = random.randint(0, len(nextPop) - 1)
@@ -406,13 +406,12 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         if abs(current_fitness - old_fitness) > tolerance_val:
             old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
 
-        convergenceInd = 0
         # for j in range(round(((len(pop))-elite_count) / 2)):
         while len(nextPop_set) < len(pop):
             # Selecting randomly 4 individuals to select 2 parents by a binary tournament
-            parentIds = {0}
+            parentIds = set()
             while len(parentIds) < 4:
-                parentIds |= {random.randint(0, len(pop) - 1)} # Union operator
+                parentIds.add(random.randint(0, len(pop) - 1))
 
             parentIds = list(parentIds)
             # Selecting 2 parents with the binary tournament
@@ -439,8 +438,8 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
                     child1[cutIdx[k]:cutIdx[k + 1]] = child2[cutIdx[k]:cutIdx[k + 1]]
                     child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]        
 
-            # Doing mutation: swapping two positions in one of the individuals, with 1:5 probability
-            if random.randint(1, 5) == 1:
+            # Doing mutation: swapping two positions in one of the individuals, with 1:15 probability
+            if random.randint(1, 50) == 1:
                 # Random swap mutation
                 ptomutate = child1
                 i1 = random.randint(0, len(ptomutate) - 2)
@@ -452,7 +451,7 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
                     i2 = random.randint(0, len(ptomutate) - 2)
                 ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
 
-            if random.randint(1, 5) == 1:
+            if random.randint(1, 50) == 1:
                 ptomutate = child2
                 i1 = random.randint(0, len(ptomutate) - 2)
                 i2 = random.randint(0, len(ptomutate) - 2)
@@ -527,7 +526,7 @@ individual = list(individual)
 
 # Add the dropped routes & cost to the end of the best solution
 individual[-1:-1] = dropped_routes[:-1]
-if len(dropped_nodes)>1:
+if len(dropped_nodes) > 1:
     individual[-1] += extended_cost
 better = [1] + list(individual[:-1]) if individual[0] != 1 else list(individual[:-1])
 # better_to_fit = better.copy()
