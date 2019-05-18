@@ -422,7 +422,7 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
             child2 = parent2.copy()
 
             # Performing Two-Point crossover and generating two children
-            # Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
+            # 123 Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
 
             cutIdx = [0] * ((min(len(parent1) - 2, len(parent2) - 2))//5 - 1)
             for k in range(0, len(cutIdx)):
