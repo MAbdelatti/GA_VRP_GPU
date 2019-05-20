@@ -389,7 +389,7 @@ def evolvePop_old(pop, vrp_data, iterations, vrp_capacity):
         pop = nextPop
     return (pop)
 
-def evolvePop(pop, vrp_data, iterations, vrp_capacity):
+def evolvePop(pop, vrp_data, iterations, vrp_capacity, extended_cost, opt):
     old_fitness = 0.0
     tolerance_val = 0.0 # indication of convergence
     # Running the genetic algorithm
@@ -401,109 +401,115 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity):
         sorted_pop = pop.copy()
         sorted_pop.sort(key= lambda elem: elem[-1])
 
-        nextPop = sorted_pop[:elite_count]
-        current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
-        if abs(current_fitness - old_fitness) > tolerance_val:
-            old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
+        if sorted_pop[0][-1] + extended_cost > opt:
+            nextPop = sorted_pop[:elite_count]
+            current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
+            if abs(current_fitness - old_fitness) > tolerance_val:
+                old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
 
-        # for j in range(round(((len(pop))-elite_count) / 2)):
-        while len(nextPop_set) < len(pop):
-            # Selecting randomly 4 individuals to select 2 parents by a binary tournament
-            parentIds = set()
-            while len(parentIds) < 4:
-                parentIds.add(random.randint(0, len(pop) - 1))
+            # for j in range(round(((len(pop))-elite_count) / 2)):
+            while len(nextPop_set) < len(pop):
+                start_evolution_timer = timer()
+                # Selecting randomly 4 individuals to select 2 parents by a binary tournament
+                parentIds = set()
+                while len(parentIds) < 4:
+                    parentIds.add(random.randint(0, len(pop) - 1))
 
-            parentIds = list(parentIds)
-            # Selecting 2 parents with the binary tournament
-            parent1 = list(pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]])
-            parent2 = list(pop[parentIds[2]] if pop[parentIds[2]][len(pop[parentIds[2]])-1] < pop[parentIds[3]][len(pop[parentIds[3]])-1] else pop[parentIds[3]])
+                parentIds = list(parentIds)
+                # Selecting 2 parents with the binary tournament
+                parent1 = list(pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]])
+                parent2 = list(pop[parentIds[2]] if pop[parentIds[2]][len(pop[parentIds[2]])-1] < pop[parentIds[3]][len(pop[parentIds[3]])-1] else pop[parentIds[3]])
 
-            child1 = parent1.copy()
-            child2 = parent2.copy()
+                child1 = parent1.copy()
+                child2 = parent2.copy()
 
-            # Performing Two-Point crossover and generating two children
-            # 123 Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
+                # Performing Two-Point crossover and generating two children
+                # Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
 
-            cutIdx = [0] * ((min(len(parent1) - 2, len(parent2) - 2))//5 - 1)
-            for k in range(0, len(cutIdx)):
-                cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
-                while cutIdx[k] in cutIdx[:k]:
+                cutIdx = [0] * ((min(len(parent1) - 2, len(parent2) - 2))//5 - 1)
+                for k in range(0, len(cutIdx)):
                     cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
-            cutIdx.sort()
-            for k in range(0, len(cutIdx), 2):
-                if len(cutIdx) %2 == 1 and k == len(cutIdx) - 1: # Odd number
-                    child1[cutIdx[k]:] = child2[cutIdx[k]:]
-                    child2[cutIdx[k]:] = child1[cutIdx[k]:]
-                else:                       
-                    child1[cutIdx[k]:cutIdx[k + 1]] = child2[cutIdx[k]:cutIdx[k + 1]]
-                    child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]        
+                    while cutIdx[k] in cutIdx[:k]:
+                        cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
+                cutIdx.sort()
+                for k in range(0, len(cutIdx), 2):
+                    if len(cutIdx) %2 == 1 and k == len(cutIdx) - 1: # Odd number
+                        child1[cutIdx[k]:] = child2[cutIdx[k]:]
+                        child2[cutIdx[k]:] = child1[cutIdx[k]:]
+                    else:                       
+                        child1[cutIdx[k]:cutIdx[k + 1]] = child2[cutIdx[k]:cutIdx[k + 1]]
+                        child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]        
 
-            # Doing mutation: swapping two positions in one of the individuals, with 1:15 probability
-            if random.randint(1, 50) == 1:
-                # Random swap mutation
-                ptomutate = child1
-                i1 = random.randint(0, len(ptomutate) - 2)
-                i2 = random.randint(0, len(ptomutate) - 2)
-                # Repeat random selection if depot was selected
-                while ptomutate[i1] == 1:
+                # Doing mutation: swapping two positions in one of the individuals, with 1:15 probability
+                if random.randint(1, 15) == 1:
+                    # Random swap mutation
+                    ptomutate = child1
                     i1 = random.randint(0, len(ptomutate) - 2)
-                while ptomutate[i2] == 1:
                     i2 = random.randint(0, len(ptomutate) - 2)
-                ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+                    # Repeat random selection if depot was selected
+                    while ptomutate[i1] == 1:
+                        i1 = random.randint(0, len(ptomutate) - 2)
+                    while ptomutate[i2] == 1:
+                        i2 = random.randint(0, len(ptomutate) - 2)
+                    ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
 
-            if random.randint(1, 50) == 1:
-                ptomutate = child2
-                i1 = random.randint(0, len(ptomutate) - 2)
-                i2 = random.randint(0, len(ptomutate) - 2)
-                # Repeat random selection if depot was selected
-                while ptomutate[i1] == 1:
+                if random.randint(1, 50) == 1:
+                    ptomutate = child2
                     i1 = random.randint(0, len(ptomutate) - 2)
-                while ptomutate[i2] == 1:
                     i2 = random.randint(0, len(ptomutate) - 2)
-                ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+                    # Repeat random selection if depot was selected
+                    while ptomutate[i1] == 1:
+                        i1 = random.randint(0, len(ptomutate) - 2)
+                    while ptomutate[i2] == 1:
+                        i2 = random.randint(0, len(ptomutate) - 2)
+                    ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
 
-            # Adjusting individuals               
-            child1 = adjust(np.asarray(child1, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-            fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child1, np.float32))
-            child1[-1] = fitness_val
+                # Adjusting individuals               
+                child1 = adjust(np.asarray(child1, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child1, np.float32))
+                child1[-1] = fitness_val
 
-            child2 = adjust(np.asarray(child2, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-            fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))
-            child2[-1] = fitness_val
+                child2 = adjust(np.asarray(child2, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))
+                child2[-1] = fitness_val
 
-            # Add children to population iff they are better than parents
-            # if (child1[-1] > parent1[-1]) | (child1[-1] > parent2[-1]):
-            nextPop_set.add(tuple(child1))
-            # else:
-            #     convergenceInd += 1
-            #     if convergenceInd >= 500:
-            #         nextPop_set.add(tuple(parent1))
-            
-            # if (child2[-1] > parent1[-1]) | (child2[-1] > parent2[-1]):
-            nextPop_set.add(tuple(child2))
-            # else:
-            #     convergenceInd += 1
-            #     if convergenceInd >= 500:
-            #         nextPop_set.add(tuple(parent2))                
-            #         convergenceInd = 0
+                # Add children to population iff they are better than parents
+                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | (timer() - start_evolution_timer >= 60):
+                    nextPop_set.add(tuple(child1))
+                else:
+                    # if convergenceInd >= 500:
+                    nextPop_set.add(tuple(parent1))
+                
+                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | (timer() - start_evolution_timer >= 60):
+                    nextPop_set.add(tuple(child2))
+                else:
+                #     convergenceInd += 1
+                #     if convergenceInd >= 500:
+                    nextPop_set.add(tuple(parent2))                
+                #         convergenceInd = 0
 
-        nextPop = list(nextPop_set)
+            nextPop = list(nextPop_set)
 
 
-		# Updating population generation
+            # Updating population generation
 
-        # random.shuffle(nextPop)
-        nextPop = sorted(nextPop, key= lambda elem: elem[-1])
-        pop = nextPop
+            # random.shuffle(nextPop)
+            nextPop = sorted(nextPop, key= lambda elem: elem[-1])
+            pop = nextPop
+        else:
+            break
     return (pop)
 
 vrp_capacity, data = readInput()
 vrp_data, dropped_nodes, dropped_routes = filter_out(vrp_capacity, data)
 if len(dropped_nodes) > 1:
     extended_cost = fitness(dropped_nodes, dropped_routes)
+else:
+    extended_cost = 0
 
 popsize = int(sys.argv[1])
 iterations = int(sys.argv[2])
+opt = float('-inf') if len(sys.argv) == 4 else float(sys.argv[4])
 
 import multiprocessing as MLP
 from concurrent.futures import ThreadPoolExecutor
@@ -516,7 +522,7 @@ start = timer()
 future_1 = pool.submit(initializePop, vrp_data, popsize, vrp_capacity)
 pop = future_1.result()
 
-future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, vrp_capacity)
+future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, vrp_capacity, extended_cost, opt)
 pop = future_2.result()
 
 # Selecting the best individual, which is the final solution
