@@ -173,23 +173,6 @@ def fitness(vrp_data, individual):
 
     return(totaldist)
 
-def another_fitness(vrp_data, individual):
-    # Divide individuals into routes:
-    idx_lo= 0
-    routes = []
-    costs = []
-    for i, val in enumerate(individual):
-        if (val == 1 and i!=0): 
-            idx_hi = i 
-            routes.append(individual[idx_lo:idx_hi])
-            idx_lo = idx_hi
-    routes.append(individual[idx_hi:])
-    for route in routes:
-        route = list(route)
-        route.append(0.0)
-        costs.append(old_fitness(vrp_data, route))
-    return(max(costs)-min(costs))
-
 def adjust(individual, vrp_data, vrp_capacity):
     # Delete duplicate nodes
     individual = individual.tolist()
@@ -229,11 +212,12 @@ def initializePop(vrp_data, popsize, vrp_capacity):
         fitness_val = fitness(np.asarray(vrp_data, dtype=np.float32), np.asarray(individual, dtype=np.float32))
         individual[-1] = fitness_val
         individual = list(individual)
-        individual.insert(0, 1)
+        individual.insert(0, 0)
         popArr += [individual]
+    print('Initial population:\n', popArr)
     return(popArr)
 
-def evolvePop(pop, vrp_data, iterations, vrp_capacity, extended_cost, opt):
+def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt):
     old_fitness = 0.0
     tolerance_val = 0.0 # indication of convergence
     # Running the genetic algorithm
@@ -244,7 +228,8 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity, extended_cost, opt):
         elite_count = len(pop)//20      # top 5% of the parents will remain in the new generation
         sorted_pop = pop.copy()
         sorted_pop.sort(key= lambda elem: elem[-1])
-
+        
+        start_evolution_timer = timer()
         if (sorted_pop[0][-1] + extended_cost) > opt:
             nextPop = sorted_pop[:elite_count]
             current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
@@ -252,8 +237,7 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity, extended_cost, opt):
                 old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
 
             # for j in range(round(((len(pop))-elite_count) / 2)):
-            start_evolution_timer = timer()
-            while len(nextPop_set) < len(pop):
+            while len(nextPop_set) < popsize:
                 # Selecting randomly 4 individuals to select 2 parents by a binary tournament
                 parentIds = set()
                 while len(parentIds) < 4:
@@ -285,7 +269,7 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity, extended_cost, opt):
                         child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]        
 
                 # Doing mutation: swapping two positions in one of the individuals, with 1:15 probability
-                mutation_prob = 15
+                mutation_prob = 85
                 if random.randint(1, mutation_prob) == 1:
                     # Random swap mutation
                     ptomutate = child1
@@ -315,7 +299,7 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity, extended_cost, opt):
                 child1[-1] = fitness_val
 
                 child1 = list(child1)
-                child1.insert(0, i + 2)
+                child1.insert(0, i + 1)
 
                 child2 = adjust(np.asarray(child2, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
                 fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))
@@ -325,25 +309,16 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity, extended_cost, opt):
                 child2.insert(0, i + 2)
 
                 # Add children to population iff they are better than parents
-                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]):
+                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 40):
                     nextPop_set.add(tuple(child1))
-                    start_evolution_timer = timer()
-                else:
-                    if (timer() - start_evolution_timer) >= 30:
-                        nextPop_set.add(tuple(parent1))
-                        start_evolution_timer = timer()
-                        break
+                    # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent1))
                 
-                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]):
+                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 40):
                     nextPop_set.add(tuple(child2))
-                    start_evolution_timer = timer()
-                else:
-                    if (timer() - start_evolution_timer) >= 30:
-                        nextPop_set.add(tuple(parent2))
-                        start_evolution_timer = timer()
-                        break                    
-                    # nextPop_set.add(tuple(parent2))                
+                    # start_evolution_timer = timer()
+                    # nextPop_set.add(tuple(parent2))   
+                               
             nextPop = list(nextPop_set)
 
             # Updating population generation
@@ -351,6 +326,8 @@ def evolvePop(pop, vrp_data, iterations, vrp_capacity, extended_cost, opt):
             # random.shuffle(nextPop)
             nextPop = sorted(nextPop, key= lambda elem: elem[-1])
             pop = nextPop
+            if not (i+1) % (iterations/5): # print population every one fifth of the popsize
+                print(f'Population at generation {i+1}:{pop}')
         else:
             break
     return (pop)
@@ -364,7 +341,7 @@ else:
 
 popsize = int(sys.argv[1])
 iterations = int(sys.argv[2])
-opt = float('-inf') if len(sys.argv) == 4 else float(sys.argv[4])
+opt = 0.0 if len(sys.argv) == 4 else int(sys.argv[4])
 
 import multiprocessing as MLP
 from concurrent.futures import ThreadPoolExecutor
@@ -377,7 +354,7 @@ start = timer()
 future_1 = pool.submit(initializePop, vrp_data, popsize, vrp_capacity)
 pop = future_1.result()
 
-future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, vrp_capacity, extended_cost, opt)
+future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt)
 pop = future_2.result()
 
 # Selecting the best individual, which is the final solution
@@ -399,9 +376,17 @@ t = int(timer()-start)
 # Printing & plotting solution
 print ('Solution by GA:\n',  better)
 print ('Cost:', individual[-1])
-print('Converged at Generation:', individual[0])
+print('Solved at Generation:', individual[0])
 
-# print(pop)
+final_pop = pop
+for i in range(len(final_pop)):
+    final_indiv = list(final_pop[i])
+    final_indiv[-1] += extended_cost
+    final_pop[i] = list(np.subtract(final_indiv[1:-1], [1]*len(final_indiv[1:-1])))
+    final_pop[i].insert(0,final_indiv[0])
+    final_pop[i].append(final_indiv[-1])
+
+print('Final population:\n', final_pop)
 
 # Plot solution:
 plt.scatter(data[1:][:,2], data[1:][:,3], c='b')

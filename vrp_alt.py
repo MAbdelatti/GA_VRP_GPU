@@ -10,7 +10,6 @@ from tqdm import tqdm
 # from numba import vectorize, guvectorize, jit, cuda
 
 from timeit import default_timer as timer
-from multiprocessing import Pool, Lock
 
 pr = cProfile.Profile()
 pr.enable
@@ -103,7 +102,6 @@ def filter_out(vrp_capacity, vrp_data):
     dropped_routes.append(0.0)
     return(vrp_data, dropped_nodes, dropped_routes)
 
-# @guvectorize([(float32[:], float32[:], float32[:], float32[:], float32[:], float32[:], float32[:,:], float32[:])], '(m),(m),(m),(m),(m),(n),(o,p)->()', target='cuda')
 def distance(first_node, prev, next_node, last_node, individual, vrp_data):
     total_dist = 0
 	# The first distance is from depot to the first node of the first route
@@ -164,7 +162,6 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
     total_dist += (round(math.sqrt(dx * dx + dy * dy)))
     return(total_dist)
 
-# @guvectorize([(float32[:,:], float32[:], float32[:])], '(m,n),(p)->()')
 def fitness(vrp_data, individual):
     first_node = np.zeros(4, dtype=np.float32)
     prev = np.zeros(4, dtype=np.float32)
@@ -176,24 +173,6 @@ def fitness(vrp_data, individual):
 
     return(totaldist)
 
-def another_fitness(vrp_data, individual):
-    # Divide individuals into routes:
-    idx_lo= 0
-    routes = []
-    costs = []
-    for i, val in enumerate(individual):
-        if (val == 1 and i!=0): 
-            idx_hi = i 
-            routes.append(individual[idx_lo:idx_hi])
-            idx_lo = idx_hi
-    routes.append(individual[idx_hi:])
-    for route in routes:
-        route = list(route)
-        route.append(0.0)
-        costs.append(old_fitness(vrp_data, route))
-    return(max(costs)-min(costs))
-
-#@jit(parallel=True)
 def adjust(individual, vrp_data, vrp_capacity):
     # Delete duplicate nodes
     individual = individual.tolist()
@@ -207,27 +186,6 @@ def adjust(individual, vrp_data, vrp_capacity):
     # Delete ones
     individual.remove(1)
 
-    # repeated = True
-    # while repeated:
-    #     repeated = False
-    #     for i1 in range(len(individual) - 1):
-    #         for i2 in range(i1):
-    #             if individual[i1] == individual[i2]:
-    #                 haveAll = True
-    #                 for i3 in range(len(vrp_data)):
-    #                     nodeId = vrp_data[i3][0]
-    #                     if nodeId not in individual: # ensure that All nodes (with demand > 0) are covered in each single solution
-    #                         individual[i1] = nodeId
-    #                         haveAll = False
-    #                         break
-    #                 if haveAll:
-    #                     mask = np.ones(len(individual), dtype=bool)
-    #                     mask[i1] = False
-    #                     individual = individual[mask]
-    #                 repeated = True
-    #             if repeated: break
-    #         if repeated: break
-    # Adjust capacity exceed
     i = 0               # index
     reqcap = 0.0        # required capacity
 
@@ -238,14 +196,6 @@ def adjust(individual, vrp_data, vrp_capacity):
             reqcap = 0.0
         i += 1
 
-    # Adjust two consecutive depots
-    # i = len(individual) - 2
-    # while i >= 0:
-    #     if individual[i] == 0 and individual[i + 1] == 0:
-    #         mask = np.ones(len(individual), dtype=bool)
-    #         mask[i] = False
-    #         individual = individual[mask]
-    #     i -= 1
     return individual
     
 # Generating random initial population
@@ -261,135 +211,137 @@ def initializePop(vrp_data, popsize, vrp_capacity):
         individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
         fitness_val = fitness(np.asarray(vrp_data, dtype=np.float32), np.asarray(individual, dtype=np.float32))
         individual[-1] = fitness_val
+        individual = list(individual)
+        individual.insert(0, 0)
         popArr += [individual]
+    print('Initial population:\n', popArr)
     return(popArr)
 
-def cross_over(list_of_params):
-    pop = list_of_params[0]
-    nextPop = list_of_params[1]
-    elite_count = list_of_params[2]
-    rounded_val = round(((len(pop))-elite_count) / 2)
-
-    for j in range(rounded_val):
-        print(j)
-    #     # Selecting randomly 4 individuals to select 2 parents by a binary tournament
-    #     parentIds = {0}
-    #     while len(parentIds) < 4:
-    #         parentIds |= {random.randint(0, len(pop) - 1)}
-
-    #     parentIds = list(parentIds)
-    #     # Selecting 2 parents with the binary tournament
-    #     parent1 = list(pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]])
-    #     parent2 = list(pop[parentIds[2]] if pop[parentIds[2]][len(pop[parentIds[2]])-1] < pop[parentIds[3]][len(pop[parentIds[3]])-1] else pop[parentIds[3]])
-
-    #     child1 = parent1.copy()
-    #     child2 = parent2.copy()
-
-    #     # Performing Two-Point crossover and generating two children
-    #     # Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
-
-    #     cutIdx = [0] * ((min(len(parent1) - 2, len(parent2) - 2))//5 - 1)
-    #     for k in range(0, len(cutIdx)):
-    #         cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
-    #         while cutIdx[k] in cutIdx[:k]:
-    #             cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
-    #     cutIdx.sort()
-
-    #     for k in range(0, len(cutIdx), 2):
-    #         if len(cutIdx) %2 == 1 and k == len(cutIdx) - 1: # Odd number
-    #             child1[cutIdx[k]:] = child2[cutIdx[k]:]
-    #             child2[cutIdx[k]:] = child1[cutIdx[k]:]
-    #         else:                       
-    #             child1[cutIdx[k]:cutIdx[k + 1]] = child2[cutIdx[k]:cutIdx[k + 1]]
-    #             child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]
-
-    #     nextPop = nextPop + [child1, child2]
-
-    # return nextPop     
-        # Performing Uniform Crossover
-        # for i in range(min(len(parent1) - 1, len(parent2) - 1)//3):
-        #   if mask[i] == 1:
-        #    #child1[i], child2[i] = child2[i], child1[i]
-
-        #     #child1[2*i], child2[2*i] = child2[2*i], child1[2*i]
-        #     #child1[2*i+1], child2[2*i+1] = child2[2*i+1], child1[2*i+1]
-            
-        #     child1[3*i], child2[3*i] = child2[3*i], child1[3*i]
-        #     child1[3*i+1], child2[3*i+1] = child2[3*i+1], child1[3*i+1]
-        #     child1[3*i+2], child2[3*i+2] = child2[3*i+2], child1[3*i+2]
-
-            #child1[4*i], child2[4*i] = child2[4*i], child1[4*i]
-            #child1[4*i+1], child2[4*i+1] = child2[4*i+1], child1[4*i+1]
-            #child1[4*i+2], child2[4*i+2] = child2[4*i+2], child1[4*i+2]
-            #child1[4*i+3], child2[4*i+3] = child2[4*i+3], child1[4*i+3]
-
-def evolvePop(pop, vrp_data, iterations, vrp_capacity):
+def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt):
     old_fitness = 0.0
     tolerance_val = 0.0 # indication of convergence
     # Running the genetic algorithm
     for i in tqdm(range(iterations)):
         nextPop = []
+        nextPop_set = set()
+
         elite_count = len(pop)//20      # top 5% of the parents will remain in the new generation
         sorted_pop = pop.copy()
         sorted_pop.sort(key= lambda elem: elem[-1])
+        
+        start_evolution_timer = timer()
+        if (sorted_pop[0][-1] + extended_cost) > opt:
+            nextPop = sorted_pop[:elite_count]
+            current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
+            if abs(current_fitness - old_fitness) > tolerance_val:
+                old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
 
-        nextPop = sorted_pop[:elite_count]
-        current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
-        if abs(current_fitness - old_fitness) > tolerance_val:
-            old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
-        # else:
-        #     print('Convergence occurred at iteration #', i)
-        #     #break
+            # for j in range(round(((len(pop))-elite_count) / 2)):
+            while len(nextPop_set) < popsize:
+                # Selecting randomly 4 individuals to select 2 parents by a binary tournament
+                parentIds = set()
+                while len(parentIds) < 4:
+                    parentIds.add(random.randint(0, len(pop) - 1))
 
-		# Each one of this iteration will generate two descendants individuals. 
-		# Therefore, to guarantee same population size, this will iterate half population size times
+                parentIds = list(parentIds)
+                # Selecting 2 parents with the binary tournament
+                parent1 = list(pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]])
+                parent2 = list(pop[parentIds[2]] if pop[parentIds[2]][len(pop[parentIds[2]])-1] < pop[parentIds[3]][len(pop[parentIds[3]])-1] else pop[parentIds[3]])
 
-        # Also, we need to create a mask for uniform crossover
-        # mask = []
-        #for i in range(len(max(pop,key= lambda indiv: len(indiv)))):
-        #for i in range(len(max(pop,key= lambda indiv: len(indiv)))//2):
-        # for i in range(len(max(pop,key= lambda indiv: len(indiv)))//3):
-        #for i in range(len(max(pop,key= lambda indiv: len(indiv)))//4):
-            # mask.append(random.randint(0, 1))
-        p = Pool()
-        list_of_params = [pop, nextPop, elite_count]
-        result = p.map(cross_over, (list_of_params,))
-        p.close()
-        p.join()
-        nextPop = result
-		# Doing mutation: swapping two positions in one of the individuals, with 1:5 probability
-        if random.randint(1, 5) == 1:
-            # Random swap mutation
-            x = random.randint(0, len(nextPop) - 1)
-            ptomutate = nextPop[x]
-            i1 = random.randint(0, len(ptomutate) - 2)
-            i2 = random.randint(0, len(ptomutate) - 2)
-            # Repeat random selection if depot was selected
-            while ptomutate[i1] == 1:
-                i1 = random.randint(0, len(ptomutate) - 2)
-            while ptomutate[i2] == 1:
-                i2 = random.randint(0, len(ptomutate) - 2)
-            ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+                child1 = parent1[1:].copy()
+                child2 = parent2[1:].copy()
 
-		# Adjusting individuals
-        for k in range(len(nextPop)):
-            individual = nextPop[k]
-            individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-            fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(individual, np.float32))
-            individual[-1] = fitness_val
-            nextPop[k] = individual
-		# Updating population generation
-        random.shuffle(nextPop)
-        pop = nextPop
+                # Performing Two-Point crossover and generating two children
+                # Selecting (n/5 - 1) random cutting points for crossover, with the same points (indexes) for both parents, based on the shortest parent
+
+                cutIdx = [0] * ((min(len(parent1) - 2, len(parent2) - 2))//5 - 1)
+                for k in range(0, len(cutIdx)):
+                    cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
+                    while cutIdx[k] in cutIdx[:k]:
+                        cutIdx[k] = random.randint(1, min(len(parent1) - 2, len(parent2) - 2))
+                cutIdx.sort()
+                for k in range(0, len(cutIdx), 2):
+                    if len(cutIdx) %2 == 1 and k == len(cutIdx) - 1: # Odd number
+                        child1[cutIdx[k]:] = child2[cutIdx[k]:]
+                        child2[cutIdx[k]:] = child1[cutIdx[k]:]
+                    else:                       
+                        child1[cutIdx[k]:cutIdx[k + 1]] = child2[cutIdx[k]:cutIdx[k + 1]]
+                        child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]        
+
+                # Doing mutation: swapping two positions in one of the individuals, with 1:15 probability
+                mutation_prob = 40
+                if random.randint(1, mutation_prob) == 1:
+                    # Random swap mutation
+                    ptomutate = child1
+                    i1 = random.randint(0, len(ptomutate) - 2)
+                    i2 = random.randint(0, len(ptomutate) - 2)
+                    # Repeat random selection if depot was selected
+                    while ptomutate[i1] == 1:
+                        i1 = random.randint(0, len(ptomutate) - 2)
+                    while ptomutate[i2] == 1:
+                        i2 = random.randint(0, len(ptomutate) - 2)
+                    ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+
+                if random.randint(1, mutation_prob) == 1:
+                    ptomutate = child2
+                    i1 = random.randint(0, len(ptomutate) - 2)
+                    i2 = random.randint(0, len(ptomutate) - 2)
+                    # Repeat random selection if depot was selected
+                    while ptomutate[i1] == 1:
+                        i1 = random.randint(0, len(ptomutate) - 2)
+                    while ptomutate[i2] == 1:
+                        i2 = random.randint(0, len(ptomutate) - 2)
+                    ptomutate[i1], ptomutate[i2] = ptomutate[i2], ptomutate[i1]
+
+                # Adjusting individuals               
+                child1 = adjust(np.asarray(child1, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child1, np.float32))
+                child1[-1] = fitness_val
+
+                child1 = list(child1)
+                child1.insert(0, i + 1)
+
+                child2 = adjust(np.asarray(child2, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))
+                child2[-1] = fitness_val
+
+                child2 = list(child2)
+                child2.insert(0, i + 2)
+
+                # Add children to population iff they are better than parents
+                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 10):
+                    nextPop_set.add(tuple(child1))
+                    # start_evolution_timer = timer()
+                    # nextPop_set.add(tuple(parent1))
+                
+                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 10):
+                    nextPop_set.add(tuple(child2))
+                    # start_evolution_timer = timer()
+                    # nextPop_set.add(tuple(parent2))   
+                               
+            nextPop = list(nextPop_set)
+
+            # Updating population generation
+
+            # random.shuffle(nextPop)
+            nextPop = sorted(nextPop, key= lambda elem: elem[-1])
+            pop = nextPop
+            if not (i+1) % (iterations/5): # print population every one fifth of the popsize
+                print(f'Population at generation {i+1}:{pop}')
+        else:
+            break
     return (pop)
 
 vrp_capacity, data = readInput()
 vrp_data, dropped_nodes, dropped_routes = filter_out(vrp_capacity, data)
 if len(dropped_nodes) > 1:
     extended_cost = fitness(dropped_nodes, dropped_routes)
+else:
+    extended_cost = 0
 
 popsize = int(sys.argv[1])
 iterations = int(sys.argv[2])
+opt = 0.0 if len(sys.argv) == 4 else int(sys.argv[4])
 
 import multiprocessing as MLP
 from concurrent.futures import ThreadPoolExecutor
@@ -402,24 +354,20 @@ start = timer()
 future_1 = pool.submit(initializePop, vrp_data, popsize, vrp_capacity)
 pop = future_1.result()
 
-future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, vrp_capacity)
+future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt)
 pop = future_2.result()
 
 # Selecting the best individual, which is the final solution
 better = []
 individual = min(pop, key= lambda idx: idx[len(idx) - 1])
-individual = individual.tolist()
+individual = list(individual)
 
 # Add the dropped routes & cost to the end of the best solution
 individual[-1:-1] = dropped_routes[:-1]
-if len(dropped_nodes)>1:
+if len(dropped_nodes) > 1:
     individual[-1] += extended_cost
-better = [1] + list(individual[:-1]) if individual[0] != 1 else list(individual[:-1])
-# better_to_fit = better.copy()
-# better_to_fit.append(0)
-# individual[-1] = old_fitness(data, better_to_fit)
+better = [1] + list(individual[1:-1]) if individual[1] != 1 else list(individual[1:-1])
 
-# new_fitness(vrp_data, better)
 data = np.subtract(data, [[1, 0, 0, 0]]*data.shape[0])
 better = list(np.subtract(better, [1]*len(better)))
 
@@ -428,7 +376,17 @@ t = int(timer()-start)
 # Printing & plotting solution
 print ('Solution by GA:\n',  better)
 print ('Cost:', individual[-1])
-# print('Time Elaplsed:', t, 's')
+print('Solved at Generation:', individual[0])
+
+final_pop = pop
+for i in range(len(final_pop)):
+    final_indiv = list(final_pop[i])
+    final_indiv[-1] += extended_cost
+    final_pop[i] = list(np.subtract(final_indiv[1:-1], [1]*len(final_indiv[1:-1])))
+    final_pop[i].insert(0,final_indiv[0])
+    final_pop[i].append(final_indiv[-1])
+
+print('Final population:\n', final_pop)
 
 # Plot solution:
 plt.scatter(data[1:][:,2], data[1:][:,3], c='b')
@@ -453,5 +411,5 @@ for loc, i in enumerate(better):
 plt.axis('equal')
 
 # Solve routes as TSP:
-import tsp_cplex as tsp
-tsp.solve(better, data, line_1)
+# import tsp_cplex as tsp
+# tsp.solve(better, data, line_1)

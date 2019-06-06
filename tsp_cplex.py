@@ -24,6 +24,7 @@ def solve(better, vrp_data, line_1):
     
     total_cost = 0
     sorted_best = []
+    
     for route in routes:
         cost = 0
         route = list(route)
