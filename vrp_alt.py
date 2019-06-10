@@ -221,6 +221,7 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
     old_fitness = 0.0
     tolerance_val = 0.0 # indication of convergence
     # Running the genetic algorithm
+    run_time = timer()
     for i in tqdm(range(iterations)):
         nextPop = []
         nextPop_set = set()
@@ -230,7 +231,8 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
         sorted_pop.sort(key= lambda elem: elem[-1])
         
         start_evolution_timer = timer()
-        if (sorted_pop[0][-1] + extended_cost) > opt:
+        # terminate if optimal is reached or runtime exceeds 1h
+        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 3600):
             nextPop = sorted_pop[:elite_count]
             current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
             if abs(current_fitness - old_fitness) > tolerance_val:
@@ -309,12 +311,12 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                 child2.insert(0, i + 2)
 
                 # Add children to population iff they are better than parents
-                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 10):
+                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 5):
                     nextPop_set.add(tuple(child1))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent1))
                 
-                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 10):
+                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 5):
                     nextPop_set.add(tuple(child2))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent2))   
@@ -328,7 +330,11 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
             pop = nextPop
             if not (i+1) % 300: # print population every 300 generations
                 print(f'Population at generation {i+1}:{pop}')
-        else:
+        elif (timer() - run_time >= 3600):
+            print('Time criteria is met')
+            break
+        elif (((sorted_pop[0][-1] + extended_cost) <= opt)):
+            print('Cost criteria is met')
             break
     return (pop)
 
