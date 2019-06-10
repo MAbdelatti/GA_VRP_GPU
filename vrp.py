@@ -309,12 +309,12 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                 child2.insert(0, i + 2)
 
                 # Add children to population iff they are better than parents
-                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 40):
+                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 5):
                     nextPop_set.add(tuple(child1))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent1))
                 
-                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 40):
+                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 5):
                     nextPop_set.add(tuple(child2))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent2))   
@@ -326,8 +326,8 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
             # random.shuffle(nextPop)
             nextPop = sorted(nextPop, key= lambda elem: elem[-1])
             pop = nextPop
-            if not (i+1) % (iterations/5): # print population every one fifth of the popsize
-                print(f'Population at generation {i+1}:{pop}')
+            if not (i+1) % 300: # print population every 300 generations
+                print(f'Population at generation {i+1}:{pop}\n Best:{pop[0][-1]}')
         else:
             break
     return (pop)

@@ -326,7 +326,7 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
             # random.shuffle(nextPop)
             nextPop = sorted(nextPop, key= lambda elem: elem[-1])
             pop = nextPop
-            if not (i+1) % (iterations/5): # print population every one fifth of the popsize
+            if not (i+1) % 300: # print population every 300 generations
                 print(f'Population at generation {i+1}:{pop}')
         else:
             break
