@@ -10,6 +10,7 @@ from tqdm import tqdm
 # from numba import vectorize, guvectorize, jit, cuda
 
 from timeit import default_timer as timer
+import two_opt
 
 pr = cProfile.Profile()
 pr.enable
@@ -189,7 +190,7 @@ def adjust(individual, vrp_data, vrp_capacity):
     i = 0               # index
     reqcap = 0.0        # required capacity
 
-    while i < len(individual)-1: 
+    while i < len(individual)-1:
         reqcap += vrp_data[vrp_data[:,0] == individual[i]][0,1] if individual[i] != 1 else 0.0
         if reqcap > vrp_capacity: 
             individual = np.insert(individual, i, np.float32(1))
@@ -217,7 +218,7 @@ def initializePop(vrp_data, popsize, vrp_capacity):
     print('Initial population:\n', popArr)
     return(popArr)
 
-def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt):
+def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table):
     old_fitness = 0.0
     tolerance_val = 0.0 # indication of convergence
     # Running the genetic algorithm
@@ -232,7 +233,7 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
         
         start_evolution_timer = timer()
         # terminate if optimal is reached or runtime exceeds 1h
-        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 3600):
+        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 36000):
             nextPop = sorted_pop[:elite_count]
             current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
             if abs(current_fitness - old_fitness) > tolerance_val:
@@ -297,17 +298,22 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
 
                 # Adjusting individuals               
                 child1 = adjust(np.asarray(child1, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child1, np.float32))
-                child1[-1] = fitness_val
-
-                child1 = list(child1)
-                child1.insert(0, i + 1)
-
                 child2 = adjust(np.asarray(child2, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))
+
+                # Apply 2-opt:
+                child1, fitness_val = two_opt.two_opt(child1[:-1], cost_table)
+                child2, fitness_val = two_opt.two_opt(child2[:-1], cost_table)
+
+                # fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child1, np.float32))
+                # fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))              
+
+                child1[-1] = fitness_val
                 child2[-1] = fitness_val
 
+                child1 = list(child1)
                 child2 = list(child2)
+
+                child1.insert(0, i + 1)
                 child2.insert(0, i + 2)
 
                 # Add children to population iff they are better than parents
@@ -328,9 +334,9 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
             # random.shuffle(nextPop)
             nextPop = sorted(nextPop, key= lambda elem: elem[-1])
             pop = nextPop
-            if not (i+1) % 300: # print population every 300 generations
+            if not (i+1) % 5: # print population every 300 generations
                 print(f'Population at generation {i+1}:{pop}')
-        elif (timer() - run_time >= 3600):
+        elif (timer() - run_time >= 36000):
             print('Time criteria is met')
             break
         elif (((sorted_pop[0][-1] + extended_cost) <= opt)):
@@ -355,12 +361,23 @@ from concurrent.futures import ThreadPoolExecutor
 cpu_no = MLP.cpu_count()
 pool = ThreadPoolExecutor(max_workers=cpu_no)
 
+## Calculate cost table:
+cost_table = np.zeros((vrp_data.shape[0],vrp_data.shape[0]), dtype=np.float32)
+vrp_data_for_cost = vrp_data.copy()
+vrp_data_for_cost[:,0] = np.subtract(vrp_data[:,0], [1]*len(vrp_data[:,0]))
+
+for index, node in enumerate(vrp_data_for_cost[:,0]):
+    cost_table[index, index+1:] = np.round(np.hypot(np.subtract([vrp_data_for_cost[index,2]]*len(vrp_data_for_cost[index+1:, 2]), vrp_data_for_cost[index+1:, 2]),\
+         np.subtract([vrp_data_for_cost[index,3]]*len(vrp_data_for_cost[index+1:, 3]),vrp_data_for_cost[index+1:, 3])))
+cost_table =  np.add(cost_table, np.transpose(cost_table))
+# ------
+
 start = timer()
 # pop = initializePop(vrp_data, popsize, vrp_capacity)
 future_1 = pool.submit(initializePop, vrp_data, popsize, vrp_capacity)
 pop = future_1.result()
 
-future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt)
+future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table)
 pop = future_2.result()
 
 # Selecting the best individual, which is the final solution
@@ -399,23 +416,30 @@ plt.scatter(data[1:][:,2], data[1:][:,3], c='b')
 plt.plot(data[0][2], vrp_data[0][3], c='r', marker='s')
 
 line_1 = None
-for loc, i in enumerate(better):
-    if i != 1:
-        # Text annotations for data points:
-        plt.annotate(('%d\n"%d"'%(i, data[data[:,0]==i][0][1])), (data[data[:,0]==i][0][2]+1,data[data[:,0]==i][0][3]))
-    if loc != len(better)-1:
-        # Plot routes
+# for loc, i in enumerate(better):
+#     if i != 1:
+#         # Text annotations for data points:
+#         plt.annotate(('%d\n"%d"'%(i, data[data[:,0]==i][0][1])), (data[data[:,0]==i][0][2]+1,data[data[:,0]==i][0][3]))
+#     if loc != len(better)-1:
+#         # Plot routes
 
-        plt.plot([data[data[:,0]==i][0][2], data[data[:,0]==better[loc+1]][0][2]],\
-         [data[data[:,0]==i][0][3], data[data[:,0]==better[loc+1]][0][3]]\
-             , c='k', linestyle='--', alpha=0.3)
-    else:
-        line_1, = plt.plot([data[data[:,0]==i][0][2], data[0][2]],\
-         [data[data[:,0]==i][0][3], data[0][3]], label='GA only: %d'%individual[-1]\
-             , c='k', linestyle='--', alpha=0.3)
+#         plt.plot([data[data[:,0]==i][0][2], data[data[:,0]==better[loc+1]][0][2]],\
+#          [data[data[:,0]==i][0][3], data[data[:,0]==better[loc+1]][0][3]]\
+#              , c='k', linestyle='--', alpha=0.3)
+#     else:
+#         line_1, = plt.plot([data[data[:,0]==i][0][2], data[0][2]],\
+#          [data[data[:,0]==i][0][3], data[0][3]], label='GA only: %d'%individual[-1]\
+#              , c='k', linestyle='--', alpha=0.3)
 
-plt.axis('equal')
+# plt.axis('equal')
 
 # Solve routes as TSP:
+# import two_opt
+# route = [0,	38,	9,	29,	21,	34,	30,	10,	39,	33,	15,	0	,12,	5,	37,	17,	19,	13,	4	,0,	18	,25	,14	,24,	23,	6,	0,	11,	16,	2,	20,	35,	36,	3,	1,	0,	27,	32,	22,	28,	31,	8,	26,	7]
+
+# sequence, cost = two_opt.two_opt(route, cost_table)
+
+# # print('After 2-opt', sequence, cost)
+
 # import tsp_cplex as tsp
 # tsp.solve(better, data, line_1)

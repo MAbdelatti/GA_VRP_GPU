@@ -217,7 +217,7 @@ def initializePop(vrp_data, popsize, vrp_capacity):
     print('Initial population:\n', popArr)
     return(popArr)
 
-def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt):
+def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table):
     old_fitness = 0.0
     tolerance_val = 0.0 # indication of convergence
     # Running the genetic algorithm
@@ -349,12 +349,22 @@ from concurrent.futures import ThreadPoolExecutor
 cpu_no = MLP.cpu_count()
 pool = ThreadPoolExecutor(max_workers=cpu_no)
 
+# Calculate cost table:
+cost_table = np.zeros((vrp_data.shape[0],vrp_data.shape[0]), dtype=np.float32)
+vrp_data_for_cost = vrp_data.copy()
+vrp_data_for_cost[:,0] = np.subtract(vrp_data[:,0], [1]*len(vrp_data[:,0]))
+
+for index, node in enumerate(vrp_data_for_cost[:,0]):
+    cost_table[index, index+1:] = np.round(np.hypot(np.subtract([vrp_data_for_cost[index,2]]*len(vrp_data_for_cost[index+1:, 2]), vrp_data_for_cost[index+1:, 2]),\
+         np.subtract([vrp_data_for_cost[index,3]]*len(vrp_data_for_cost[index+1:, 3]),vrp_data_for_cost[index+1:, 3])))
+cost_table =  np.add(cost_table, np.transpose(cost_table))
+
 start = timer()
 # pop = initializePop(vrp_data, popsize, vrp_capacity)
 future_1 = pool.submit(initializePop, vrp_data, popsize, vrp_capacity)
 pop = future_1.result()
 
-future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt)
+future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table)
 pop = future_2.result()
 
 # Selecting the best individual, which is the final solution
