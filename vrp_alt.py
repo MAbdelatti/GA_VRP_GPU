@@ -170,7 +170,7 @@ def fitness(vrp_data, individual):
     last_node = np.zeros(4, dtype=np.float32)
 
     totaldist = distance(first_node, prev, next_node, last_node, individual, vrp_data)
-    no_of_vehicles = list(individual).count(1)
+    # no_of_vehicles = list(individual).count(1)
 
     return(totaldist)
 
@@ -218,26 +218,34 @@ def initializePop(vrp_data, popsize, vrp_capacity):
     print('Initial population:\n', popArr)
     return(popArr)
 
-def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table):
-    old_fitness = 0.0
-    tolerance_val = 0.0 # indication of convergence
+def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table=0):
     # Running the genetic algorithm
     run_time = timer()
+    stucking_indicator = 0
     for i in tqdm(range(iterations)):
+        old_best = pop[0][-1]
         nextPop = []
         nextPop_set = set()
 
-        elite_count = len(pop)//20      # top 5% of the parents will remain in the new generation
+        elite_count = len(pop)//20      
         sorted_pop = pop.copy()
+
+        # Apply two-opt for the new top 5% individuals:
+        for idx, individual in enumerate(sorted_pop[:elite_count]):
+            if individual[0] >= i:
+                sorted_pop[idx], cost = two_opt.two_opt(individual[1:-1], cost_table)
+                sorted_pop[idx].append(9999)
+                fitness_value = fitness(np.asarray(vrp_data, np.float32), np.asarray(sorted_pop[idx], np.float32))
+                sorted_pop[idx][-1] = (fitness_value)
+                sorted_pop[idx].insert(0,individual[0])
+        
         sorted_pop.sort(key= lambda elem: elem[-1])
+        pop = sorted_pop.copy()
         
         start_evolution_timer = timer()
         # terminate if optimal is reached or runtime exceeds 1h
-        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 36000):
-            nextPop = sorted_pop[:elite_count]
-            current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
-            if abs(current_fitness - old_fitness) > tolerance_val:
-                old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
+        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 3600):
+            nextPop = sorted_pop[:elite_count] # top 5% of the parents will remain in the new generation         
 
             # for j in range(round(((len(pop))-elite_count) / 2)):
             while len(nextPop_set) < popsize:
@@ -246,6 +254,24 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                 while len(parentIds) < 4:
                     parentIds.add(random.randint(0, len(pop) - 1))
 
+                # Avoid stucking to a local minimum swap after 25 generations of identical fitness
+                # if stucking_indicator >= 25:
+                #     print('\nstucking is spotted', pop[1])
+                #     for idx, swapped_indiv in enumerate(pop[1:elite_count]):
+                #         i1 = swapped_indiv[1:round(len(swapped_indiv)/2)]
+                #         i2 = swapped_indiv[round(len(swapped_indiv)/2): -1]
+                #         # i1 = random.randint(1, len(swapped_indiv) - 2)
+                #         # i2 = random.randint(1, len(swapped_indiv) - 2)
+                #         swapped_indiv = i2
+                #         swapped_indiv = np.append(swapped_indiv, i1)
+                #         # swapped_indiv[i1], swapped_indiv[i2] = swapped_indiv[i2], swapped_indiv[i1]
+                #         swapped_indiv = adjust(np.asarray(swapped_indiv[1:], dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+                #         fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(swapped_indiv[1:], np.float32))
+                #         # swapped_indiv[-1] = fitness_val
+                #         swapped_indiv = np.append(swapped_indiv, fitness_val)
+                #         pop[idx] = swapped_indiv
+                #     stucking_indicator = 0
+               
                 parentIds = list(parentIds)
                 # Selecting 2 parents with the binary tournament
                 parent1 = list(pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]])
@@ -300,29 +326,29 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                 child1 = adjust(np.asarray(child1, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
                 child2 = adjust(np.asarray(child2, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
 
-                # Apply 2-opt:
-                child1, fitness_val = two_opt.two_opt(child1[:-1], cost_table)
-                child2, fitness_val = two_opt.two_opt(child2[:-1], cost_table)
+                # # Apply 2-opt:
+                # child1, fitness_val = two_opt.two_opt(child1[:-1], cost_table)
+                # child2, fitness_val = two_opt.two_opt(child2[:-1], cost_table)
 
-                # fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child1, np.float32))
-                # fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))              
-
+                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child1, np.float32))
                 child1[-1] = fitness_val
+                
+                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))
                 child2[-1] = fitness_val
 
                 child1 = list(child1)
                 child2 = list(child2)
 
                 child1.insert(0, i + 1)
-                child2.insert(0, i + 2)
+                child2.insert(0, i + 1)
 
                 # Add children to population iff they are better than parents
-                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 5):
+                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 20):
                     nextPop_set.add(tuple(child1))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent1))
                 
-                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 5):
+                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 20):
                     nextPop_set.add(tuple(child2))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent2))   
@@ -333,10 +359,16 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
 
             # random.shuffle(nextPop)
             nextPop = sorted(nextPop, key= lambda elem: elem[-1])
+
+            if nextPop[0][-1] == old_best:
+                stucking_indicator += 1
+            else:
+                stucking_indicator = 0
+
             pop = nextPop
-            if not (i+1) % 5: # print population every 300 generations
-                print(f'Population at generation {i+1}:{pop}')
-        elif (timer() - run_time >= 36000):
+            if not (i+1) % 1: # print population every 300 generations
+                print(f'Population at generation {i+1}:{pop}\nBest: {pop[0][-1]}')
+        elif (timer() - run_time >= 3600):
             print('Time criteria is met')
             break
         elif (((sorted_pop[0][-1] + extended_cost) <= opt)):
@@ -369,6 +401,7 @@ vrp_data_for_cost[:,0] = np.subtract(vrp_data[:,0], [1]*len(vrp_data[:,0]))
 for index, node in enumerate(vrp_data_for_cost[:,0]):
     cost_table[index, index+1:] = np.round(np.hypot(np.subtract([vrp_data_for_cost[index,2]]*len(vrp_data_for_cost[index+1:, 2]), vrp_data_for_cost[index+1:, 2]),\
          np.subtract([vrp_data_for_cost[index,3]]*len(vrp_data_for_cost[index+1:, 3]),vrp_data_for_cost[index+1:, 3])))
+
 cost_table =  np.add(cost_table, np.transpose(cost_table))
 # ------
 
