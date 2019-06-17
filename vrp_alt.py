@@ -394,9 +394,9 @@ cpu_no = MLP.cpu_count()
 pool = ThreadPoolExecutor(max_workers=cpu_no)
 
 ## Calculate cost table:
-cost_table = np.zeros((vrp_data.shape[0],vrp_data.shape[0]), dtype=np.float32)
-vrp_data_for_cost = vrp_data.copy()
-vrp_data_for_cost[:,0] = np.subtract(vrp_data[:,0], [1]*len(vrp_data[:,0]))
+cost_table = np.zeros((data.shape[0],data.shape[0]), dtype=np.float32)
+vrp_data_for_cost = data.copy()
+vrp_data_for_cost[:,0] = np.subtract(data[:,0], [1]*len(data[:,0]))
 
 for index, node in enumerate(vrp_data_for_cost[:,0]):
     cost_table[index, index+1:] = np.round(np.hypot(np.subtract([vrp_data_for_cost[index,2]]*len(vrp_data_for_cost[index+1:, 2]), vrp_data_for_cost[index+1:, 2]),\
