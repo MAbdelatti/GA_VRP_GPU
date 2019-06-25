@@ -244,7 +244,7 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
         
         start_evolution_timer = timer()
         # terminate if optimal is reached or runtime exceeds 1h
-        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 3600):
+        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 360000):
             nextPop = sorted_pop[:elite_count] # top 5% of the parents will remain in the new generation         
 
             # for j in range(round(((len(pop))-elite_count) / 2)):
@@ -255,22 +255,22 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                     parentIds.add(random.randint(0, len(pop) - 1))
 
                 # Avoid stucking to a local minimum swap after 25 generations of identical fitness
-                # if stucking_indicator >= 25:
-                #     print('\nstucking is spotted', pop[1])
-                #     for idx, swapped_indiv in enumerate(pop[1:elite_count]):
-                #         i1 = swapped_indiv[1:round(len(swapped_indiv)/2)]
-                #         i2 = swapped_indiv[round(len(swapped_indiv)/2): -1]
-                #         # i1 = random.randint(1, len(swapped_indiv) - 2)
-                #         # i2 = random.randint(1, len(swapped_indiv) - 2)
-                #         swapped_indiv = i2
-                #         swapped_indiv = np.append(swapped_indiv, i1)
-                #         # swapped_indiv[i1], swapped_indiv[i2] = swapped_indiv[i2], swapped_indiv[i1]
-                #         swapped_indiv = adjust(np.asarray(swapped_indiv[1:], dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-                #         fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(swapped_indiv[1:], np.float32))
-                #         # swapped_indiv[-1] = fitness_val
-                #         swapped_indiv = np.append(swapped_indiv, fitness_val)
-                #         pop[idx] = swapped_indiv
-                #     stucking_indicator = 0
+                if stucking_indicator >= 25:
+                    print('\nstucking is spotted', pop[1])
+                    for idx, swapped_indiv in enumerate(pop[1:elite_count]):
+                        i1 = swapped_indiv[1:round(len(swapped_indiv)/2)]
+                        i2 = swapped_indiv[round(len(swapped_indiv)/2): -1]
+                        # i1 = random.randint(1, len(swapped_indiv) - 2)
+                        # i2 = random.randint(1, len(swapped_indiv) - 2)
+                        swapped_indiv = i2
+                        swapped_indiv = np.append(swapped_indiv, i1)
+                        # swapped_indiv[i1], swapped_indiv[i2] = swapped_indiv[i2], swapped_indiv[i1]
+                        swapped_indiv = adjust(np.asarray(swapped_indiv[1:], dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+                        fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(swapped_indiv[1:], np.float32))
+                        # swapped_indiv[-1] = fitness_val
+                        swapped_indiv = np.append(swapped_indiv, fitness_val)
+                        pop[idx] = swapped_indiv
+                    stucking_indicator = 0
                
                 parentIds = list(parentIds)
                 # Selecting 2 parents with the binary tournament
@@ -343,12 +343,12 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                 child2.insert(0, i + 1)
 
                 # Add children to population iff they are better than parents
-                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 20):
+                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 30):
                     nextPop_set.add(tuple(child1))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent1))
                 
-                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 20):
+                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 30):
                     nextPop_set.add(tuple(child2))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent2))   
@@ -366,9 +366,9 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                 stucking_indicator = 0
 
             pop = nextPop
-            if not (i+1) % 1: # print population every 300 generations
+            if not (i+1) % 5: # print population every 300 generations
                 print(f'Population at generation {i+1}:{pop}\nBest: {pop[0][-1]}')
-        elif (timer() - run_time >= 3600):
+        elif (timer() - run_time >= 360000):
             print('Time criteria is met')
             break
         elif (((sorted_pop[0][-1] + extended_cost) <= opt)):
