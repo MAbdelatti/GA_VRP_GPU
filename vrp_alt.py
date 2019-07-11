@@ -100,7 +100,7 @@ def filter_out(vrp_capacity, vrp_data):
             vrp_data = np.delete(vrp_data, np.where(vrp_data[:,0]==node[0]),0)
             dropped_nodes.append(node.tolist())
             dropped_routes.extend([1, node[0]])
-    dropped_routes.append(0.0)
+    dropped_routes.append(1.0)
     return(vrp_data, dropped_nodes, dropped_routes)
 
 def distance(first_node, prev, next_node, last_node, individual, vrp_data):
@@ -162,6 +162,17 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
     dy = y1 - y2
     total_dist += (round(math.sqrt(dx * dx + dy * dy)))
     return(total_dist)
+
+def fitness_new(cost_table, individual):
+    # nodes represent the row/column index in the cost table
+    zeroed_indiv = np.subtract(individual, [1]*len(individual))
+    if individual[-1] != 1:
+        zeroed_indiv = np.hstack((zeroed_indiv, 0))
+
+    fitness_val = 0
+    for i in range(len(individual)):
+        fitness_val += cost_table[int(zeroed_indiv[i]), int(zeroed_indiv[i+1])]
+    return fitness_val
 
 def fitness(vrp_data, individual):
     first_node = np.zeros(4, dtype=np.float32)
@@ -244,7 +255,7 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
         
         start_evolution_timer = timer()
         # terminate if optimal is reached or runtime exceeds 1h
-        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 360000):
+        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 60):
             nextPop = sorted_pop[:elite_count] # top 5% of the parents will remain in the new generation         
 
             # for j in range(round(((len(pop))-elite_count) / 2)):
@@ -255,22 +266,22 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                     parentIds.add(random.randint(0, len(pop) - 1))
 
                 # Avoid stucking to a local minimum swap after 25 generations of identical fitness
-                if stucking_indicator >= 25:
-                    print('\nstucking is spotted', pop[1])
-                    for idx, swapped_indiv in enumerate(pop[1:elite_count]):
-                        i1 = swapped_indiv[1:round(len(swapped_indiv)/2)]
-                        i2 = swapped_indiv[round(len(swapped_indiv)/2): -1]
-                        # i1 = random.randint(1, len(swapped_indiv) - 2)
-                        # i2 = random.randint(1, len(swapped_indiv) - 2)
-                        swapped_indiv = i2
-                        swapped_indiv = np.append(swapped_indiv, i1)
-                        # swapped_indiv[i1], swapped_indiv[i2] = swapped_indiv[i2], swapped_indiv[i1]
-                        swapped_indiv = adjust(np.asarray(swapped_indiv[1:], dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-                        fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(swapped_indiv[1:], np.float32))
-                        # swapped_indiv[-1] = fitness_val
-                        swapped_indiv = np.append(swapped_indiv, fitness_val)
-                        pop[idx] = swapped_indiv
-                    stucking_indicator = 0
+                #if stucking_indicator >= 25:
+                    #print('\nstucking is spotted', pop[1])
+                    #for idx, swapped_indiv in enumerate(pop[1:elite_count]):
+                        #i1 = swapped_indiv[1:round(len(swapped_indiv)/2)]
+                        #i2 = swapped_indiv[round(len(swapped_indiv)/2): -1]
+                        ## i1 = random.randint(1, len(swapped_indiv) - 2)
+                        ## i2 = random.randint(1, len(swapped_indiv) - 2)
+                        #swapped_indiv = i2
+                        #swapped_indiv = np.append(swapped_indiv, i1)
+                        ## swapped_indiv[i1], swapped_indiv[i2] = swapped_indiv[i2], swapped_indiv[i1]
+                        #swapped_indiv = adjust(np.asarray(swapped_indiv[1:], dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+                        #fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(swapped_indiv[1:], np.float32))
+                        ## swapped_indiv[-1] = fitness_val
+                        #swapped_indiv = np.append(swapped_indiv, fitness_val)
+                        #pop[idx] = swapped_indiv
+                    #stucking_indicator = 0
                
                 parentIds = list(parentIds)
                 # Selecting 2 parents with the binary tournament
@@ -368,7 +379,7 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
             pop = nextPop
             if not (i+1) % 5: # print population every 300 generations
                 print(f'Population at generation {i+1}:{pop}\nBest: {pop[0][-1]}')
-        elif (timer() - run_time >= 360000):
+        elif (timer() - run_time >= 60):
             print('Time criteria is met')
             break
         elif (((sorted_pop[0][-1] + extended_cost) <= opt)):
@@ -378,8 +389,20 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
 
 vrp_capacity, data = readInput()
 vrp_data, dropped_nodes, dropped_routes = filter_out(vrp_capacity, data)
+
+## Calculate cost table:
+cost_table = np.zeros((data.shape[0],data.shape[0]), dtype=np.float32)
+vrp_data_for_cost = data.copy()
+vrp_data_for_cost[:,0] = np.subtract(data[:,0], [1]*len(data[:,0]))
+
+for index, node in enumerate(vrp_data_for_cost[:,0]):
+    cost_table[index, index+1:] = np.round(np.hypot(np.subtract([vrp_data_for_cost[index,2]]*len(vrp_data_for_cost[index+1:, 2]), vrp_data_for_cost[index+1:, 2]),\
+         np.subtract([vrp_data_for_cost[index,3]]*len(vrp_data_for_cost[index+1:, 3]),vrp_data_for_cost[index+1:, 3])))
+
+cost_table =  np.add(cost_table, np.transpose(cost_table))
+
 if len(dropped_nodes) > 1:
-    extended_cost = fitness(dropped_nodes, dropped_routes)
+    extended_cost = fitness(cost_table, dropped_routes)
 else:
     extended_cost = 0
 
@@ -393,25 +416,16 @@ from concurrent.futures import ThreadPoolExecutor
 cpu_no = MLP.cpu_count()
 pool = ThreadPoolExecutor(max_workers=cpu_no)
 
-## Calculate cost table:
-cost_table = np.zeros((data.shape[0],data.shape[0]), dtype=np.float32)
-vrp_data_for_cost = data.copy()
-vrp_data_for_cost[:,0] = np.subtract(data[:,0], [1]*len(data[:,0]))
-
-for index, node in enumerate(vrp_data_for_cost[:,0]):
-    cost_table[index, index+1:] = np.round(np.hypot(np.subtract([vrp_data_for_cost[index,2]]*len(vrp_data_for_cost[index+1:, 2]), vrp_data_for_cost[index+1:, 2]),\
-         np.subtract([vrp_data_for_cost[index,3]]*len(vrp_data_for_cost[index+1:, 3]),vrp_data_for_cost[index+1:, 3])))
-
-cost_table =  np.add(cost_table, np.transpose(cost_table))
 # ------
 
 start = timer()
-# pop = initializePop(vrp_data, popsize, vrp_capacity)
-future_1 = pool.submit(initializePop, vrp_data, popsize, vrp_capacity)
-pop = future_1.result()
+pop = initializePop(vrp_data, popsize, vrp_capacity)
+# future_1 = pool.submit(initializePop, vrp_data, popsize, vrp_capacity)
+# pop = future_1.result()
 
-future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table)
-pop = future_2.result()
+pop = evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table)
+# future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table)
+# pop = future_2.result()
 
 # Selecting the best individual, which is the final solution
 better = []
