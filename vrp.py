@@ -10,6 +10,7 @@ from tqdm import tqdm
 # from numba import vectorize, guvectorize, jit, cuda
 
 from timeit import default_timer as timer
+import two_opt
 
 pr = cProfile.Profile()
 pr.enable
@@ -99,7 +100,7 @@ def filter_out(vrp_capacity, vrp_data):
             vrp_data = np.delete(vrp_data, np.where(vrp_data[:,0]==node[0]),0)
             dropped_nodes.append(node.tolist())
             dropped_routes.extend([1, node[0]])
-    dropped_routes.append(0.0)
+    dropped_routes.append(1.0)
     return(vrp_data, dropped_nodes, dropped_routes)
 
 def distance(first_node, prev, next_node, last_node, individual, vrp_data):
@@ -162,14 +163,27 @@ def distance(first_node, prev, next_node, last_node, individual, vrp_data):
     total_dist += (round(math.sqrt(dx * dx + dy * dy)))
     return(total_dist)
 
-def fitness(vrp_data, individual):
+def fitness(cost_table, individual):
+    # nodes represent the row/column index in the cost table
+    zeroed_indiv = np.subtract(individual, [1]*len(individual))
+    if zeroed_indiv[0] != 0:
+        zeroed_indiv = np.insert(zeroed_indiv,0,0)
+    if individual[-1] != 1:
+        zeroed_indiv = np.hstack((zeroed_indiv, 0))
+
+    fitness_val = 0
+    for i in range(len(zeroed_indiv)-1):
+        fitness_val += cost_table[int(zeroed_indiv[i]), int(zeroed_indiv[i+1])]
+    return fitness_val
+
+def fitness_old(vrp_data, individual):
     first_node = np.zeros(4, dtype=np.float32)
     prev = np.zeros(4, dtype=np.float32)
     next_node = np.zeros(4, dtype=np.float32)
     last_node = np.zeros(4, dtype=np.float32)
 
     totaldist = distance(first_node, prev, next_node, last_node, individual, vrp_data)
-    no_of_vehicles = list(individual).count(1)
+    # no_of_vehicles = list(individual).count(1)
 
     return(totaldist)
 
@@ -189,7 +203,7 @@ def adjust(individual, vrp_data, vrp_capacity):
     i = 0               # index
     reqcap = 0.0        # required capacity
 
-    while i < len(individual)-1: 
+    while i < len(individual)-1:
         reqcap += vrp_data[vrp_data[:,0] == individual[i]][0,1] if individual[i] != 1 else 0.0
         if reqcap > vrp_capacity: 
             individual = np.insert(individual, i, np.float32(1))
@@ -199,7 +213,7 @@ def adjust(individual, vrp_data, vrp_capacity):
     return individual
     
 # Generating random initial population
-def initializePop(vrp_data, popsize, vrp_capacity):
+def initializePop(vrp_data, cost_table, popsize, vrp_capacity):
     print('GA evolving, please wait until finished...')
     popArr = []
     nodes = []
@@ -209,7 +223,7 @@ def initializePop(vrp_data, popsize, vrp_capacity):
         random.shuffle(individual)
         individual.append(9999.0) # Any number != 1
         individual = adjust(np.asarray(individual, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-        fitness_val = fitness(np.asarray(vrp_data, dtype=np.float32), np.asarray(individual, dtype=np.float32))
+        fitness_val = fitness(cost_table, individual[:-1])
         individual[-1] = fitness_val
         individual = list(individual)
         individual.insert(0, 0)
@@ -217,24 +231,34 @@ def initializePop(vrp_data, popsize, vrp_capacity):
     print('Initial population:\n', popArr)
     return(popArr)
 
-def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table):
-    old_fitness = 0.0
-    tolerance_val = 0.0 # indication of convergence
+def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table=0):
     # Running the genetic algorithm
+    run_time = timer()
+    stucking_indicator = 0
     for i in tqdm(range(iterations)):
+        old_best = pop[0][-1]
         nextPop = []
         nextPop_set = set()
 
-        elite_count = len(pop)//20      # top 5% of the parents will remain in the new generation
+        elite_count = len(pop)//20      
         sorted_pop = pop.copy()
+
+        # Apply two-opt for the new top 5% individuals:
+        for idx, individual in enumerate(sorted_pop[:elite_count]):
+            if individual[0] >= i:
+                sorted_pop[idx], cost = two_opt.two_opt(individual[1:-1], cost_table)
+                sorted_pop[idx].append(9999)
+                fitness_value = fitness(cost_table, sorted_pop[idx][:-1])
+                sorted_pop[idx][-1] = (fitness_value)
+                sorted_pop[idx].insert(0,individual[0])
+        
         sorted_pop.sort(key= lambda elem: elem[-1])
+        pop = sorted_pop.copy()
         
         start_evolution_timer = timer()
-        if (sorted_pop[0][-1] + extended_cost) > opt:
-            nextPop = sorted_pop[:elite_count]
-            current_fitness = sorted_pop[len(sorted_pop)-1][len(sorted_pop[len(sorted_pop)-1])-1]
-            if abs(current_fitness - old_fitness) > tolerance_val:
-                old_fitness = sorted_pop[0][len(sorted_pop[0])-1]
+        # terminate if optimal is reached or runtime exceeds 1h
+        if ((sorted_pop[0][-1] + extended_cost) > opt) and (timer() - run_time <= 60):
+            nextPop = sorted_pop[:elite_count] # top 5% of the parents will remain in the new generation         
 
             # for j in range(round(((len(pop))-elite_count) / 2)):
             while len(nextPop_set) < popsize:
@@ -243,6 +267,24 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                 while len(parentIds) < 4:
                     parentIds.add(random.randint(0, len(pop) - 1))
 
+                # Avoid stucking to a local minimum swap after 25 generations of identical fitness
+                #if stucking_indicator >= 25:
+                    #print('\nstucking is spotted', pop[1])
+                    #for idx, swapped_indiv in enumerate(pop[1:elite_count]):
+                        #i1 = swapped_indiv[1:round(len(swapped_indiv)/2)]
+                        #i2 = swapped_indiv[round(len(swapped_indiv)/2): -1]
+                        ## i1 = random.randint(1, len(swapped_indiv) - 2)
+                        ## i2 = random.randint(1, len(swapped_indiv) - 2)
+                        #swapped_indiv = i2
+                        #swapped_indiv = np.append(swapped_indiv, i1)
+                        ## swapped_indiv[i1], swapped_indiv[i2] = swapped_indiv[i2], swapped_indiv[i1]
+                        #swapped_indiv = adjust(np.asarray(swapped_indiv[1:], dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
+                        #fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(swapped_indiv[1:], np.float32))
+                        ## swapped_indiv[-1] = fitness_val
+                        #swapped_indiv = np.append(swapped_indiv, fitness_val)
+                        #pop[idx] = swapped_indiv
+                    #stucking_indicator = 0
+               
                 parentIds = list(parentIds)
                 # Selecting 2 parents with the binary tournament
                 parent1 = list(pop[parentIds[0]] if pop[parentIds[0]][len(pop[parentIds[0]])-1] < pop[parentIds[1]][len(pop[parentIds[1]])-1] else pop[parentIds[1]])
@@ -269,7 +311,7 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
                         child2[cutIdx[k]:cutIdx[k + 1]] = child1[cutIdx[k]:cutIdx[k + 1]]        
 
                 # Doing mutation: swapping two positions in one of the individuals, with 1:15 probability
-                mutation_prob = 85
+                mutation_prob = 40
                 if random.randint(1, mutation_prob) == 1:
                     # Random swap mutation
                     ptomutate = child1
@@ -295,26 +337,31 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
 
                 # Adjusting individuals               
                 child1 = adjust(np.asarray(child1, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child1, np.float32))
-                child1[-1] = fitness_val
-
-                child1 = list(child1)
-                child1.insert(0, i + 1)
-
                 child2 = adjust(np.asarray(child2, dtype=np.float32), np.asarray(vrp_data, dtype=np.float32), vrp_capacity)
-                fitness_val = fitness(np.asarray(vrp_data, np.float32), np.asarray(child2, np.float32))
+
+                # # Apply 2-opt:
+                # child1, fitness_val = two_opt.two_opt(child1[:-1], cost_table)
+                # child2, fitness_val = two_opt.two_opt(child2[:-1], cost_table)
+
+                fitness_val = fitness(cost_table, child1[:-1])
+                child1[-1] = fitness_val
+                
+                fitness_val = fitness(cost_table, child2[:-1])
                 child2[-1] = fitness_val
 
+                child1 = list(child1)
                 child2 = list(child2)
-                child2.insert(0, i + 2)
+
+                child1.insert(0, i + 1)
+                child2.insert(0, i + 1)
 
                 # Add children to population iff they are better than parents
-                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 5):
+                if (child1[-1] < parent1[-1]) | (child1[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 30):
                     nextPop_set.add(tuple(child1))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent1))
                 
-                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 5):
+                if (child2[-1] < parent1[-1]) | (child2[-1] < parent2[-1]) | ((timer() - start_evolution_timer) > 30):
                     nextPop_set.add(tuple(child2))
                     # start_evolution_timer = timer()
                     # nextPop_set.add(tuple(parent2))   
@@ -325,17 +372,40 @@ def evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, o
 
             # random.shuffle(nextPop)
             nextPop = sorted(nextPop, key= lambda elem: elem[-1])
+
+            if nextPop[0][-1] == old_best:
+                stucking_indicator += 1
+            else:
+                stucking_indicator = 0
+
             pop = nextPop
-            if not (i+1) % 300: # print population every 300 generations
-                print(f'Population at generation {i+1}:{pop}\n Best:{pop[0][-1]}')
-        else:
+            if not (i+1) % 5: # print population every 300 generations
+                print(f'Population at generation {i+1}:{pop}\nBest: {pop[0][-1]}')
+        elif (timer() - run_time >= 60):
+            print('Time criteria is met')
+            break
+        elif (((sorted_pop[0][-1] + extended_cost) <= opt)):
+            print('Cost criteria is met')
             break
     return (pop)
 
 vrp_capacity, data = readInput()
 vrp_data, dropped_nodes, dropped_routes = filter_out(vrp_capacity, data)
+
+## Calculate cost table:
+cost_table = np.zeros((data.shape[0],data.shape[0]), dtype=np.float32)
+vrp_data_for_cost = data.copy()
+vrp_data_for_cost[:,0] = np.subtract(data[:,0], [1]*len(data[:,0]))
+
+for index, node in enumerate(vrp_data_for_cost[:,0]):
+    cost_table[index, index+1:] = np.round(np.hypot(np.subtract([vrp_data_for_cost[index,2]]*len(vrp_data_for_cost[index+1:, 2]), vrp_data_for_cost[index+1:, 2]),\
+         np.subtract([vrp_data_for_cost[index,3]]*len(vrp_data_for_cost[index+1:, 3]),vrp_data_for_cost[index+1:, 3])))
+
+cost_table =  np.add(cost_table, np.transpose(cost_table))
+# ------
+
 if len(dropped_nodes) > 1:
-    extended_cost = fitness(dropped_nodes, dropped_routes)
+    extended_cost = fitness(cost_table, dropped_routes)
 else:
     extended_cost = 0
 
@@ -349,21 +419,12 @@ from concurrent.futures import ThreadPoolExecutor
 cpu_no = MLP.cpu_count()
 pool = ThreadPoolExecutor(max_workers=cpu_no)
 
-# Calculate cost table:
-cost_table = np.zeros((vrp_data.shape[0],vrp_data.shape[0]), dtype=np.float32)
-vrp_data_for_cost = vrp_data.copy()
-vrp_data_for_cost[:,0] = np.subtract(vrp_data[:,0], [1]*len(vrp_data[:,0]))
-
-for index, node in enumerate(vrp_data_for_cost[:,0]):
-    cost_table[index, index+1:] = np.round(np.hypot(np.subtract([vrp_data_for_cost[index,2]]*len(vrp_data_for_cost[index+1:, 2]), vrp_data_for_cost[index+1:, 2]),\
-         np.subtract([vrp_data_for_cost[index,3]]*len(vrp_data_for_cost[index+1:, 3]),vrp_data_for_cost[index+1:, 3])))
-cost_table =  np.add(cost_table, np.transpose(cost_table))
-
 start = timer()
-# pop = initializePop(vrp_data, popsize, vrp_capacity)
-future_1 = pool.submit(initializePop, vrp_data, popsize, vrp_capacity)
+# pop = initializePop(vrp_data, cost_table, popsize, vrp_capacity)
+future_1 = pool.submit(initializePop, vrp_data, cost_table, popsize, vrp_capacity)
 pop = future_1.result()
 
+# pop = evolvePop(pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table)
 future_2 = pool.submit(evolvePop, pop, vrp_data, iterations, popsize, vrp_capacity, extended_cost, opt, cost_table)
 pop = future_2.result()
 
@@ -403,23 +464,30 @@ plt.scatter(data[1:][:,2], data[1:][:,3], c='b')
 plt.plot(data[0][2], vrp_data[0][3], c='r', marker='s')
 
 line_1 = None
-for loc, i in enumerate(better):
-    if i != 1:
-        # Text annotations for data points:
-        plt.annotate(('%d\n"%d"'%(i, data[data[:,0]==i][0][1])), (data[data[:,0]==i][0][2]+1,data[data[:,0]==i][0][3]))
-    if loc != len(better)-1:
-        # Plot routes
+# for loc, i in enumerate(better):
+#     if i != 1:
+#         # Text annotations for data points:
+#         plt.annotate(('%d\n"%d"'%(i, data[data[:,0]==i][0][1])), (data[data[:,0]==i][0][2]+1,data[data[:,0]==i][0][3]))
+#     if loc != len(better)-1:
+#         # Plot routes
 
-        plt.plot([data[data[:,0]==i][0][2], data[data[:,0]==better[loc+1]][0][2]],\
-         [data[data[:,0]==i][0][3], data[data[:,0]==better[loc+1]][0][3]]\
-             , c='k', linestyle='--', alpha=0.3)
-    else:
-        line_1, = plt.plot([data[data[:,0]==i][0][2], data[0][2]],\
-         [data[data[:,0]==i][0][3], data[0][3]], label='GA only: %d'%individual[-1]\
-             , c='k', linestyle='--', alpha=0.3)
+#         plt.plot([data[data[:,0]==i][0][2], data[data[:,0]==better[loc+1]][0][2]],\
+#          [data[data[:,0]==i][0][3], data[data[:,0]==better[loc+1]][0][3]]\
+#              , c='k', linestyle='--', alpha=0.3)
+#     else:
+#         line_1, = plt.plot([data[data[:,0]==i][0][2], data[0][2]],\
+#          [data[data[:,0]==i][0][3], data[0][3]], label='GA only: %d'%individual[-1]\
+#              , c='k', linestyle='--', alpha=0.3)
 
-plt.axis('equal')
+# plt.axis('equal')
 
 # Solve routes as TSP:
+# import two_opt
+# route = [0,	38,	9,	29,	21,	34,	30,	10,	39,	33,	15,	0	,12,	5,	37,	17,	19,	13,	4	,0,	18	,25	,14	,24,	23,	6,	0,	11,	16,	2,	20,	35,	36,	3,	1,	0,	27,	32,	22,	28,	31,	8,	26,	7]
+
+# sequence, cost = two_opt.two_opt(route, cost_table)
+
+# # print('After 2-opt', sequence, cost)
+
 # import tsp_cplex as tsp
 # tsp.solve(better, data, line_1)
