@@ -42,7 +42,7 @@ def two_opt(individual, cost_table, min_cost = 0):
         for i in range(R):
             improved = True
             if i == 0:
-                Start = 0 
+                Start = 0
                 End = L
                 while improved:
                     improved = False

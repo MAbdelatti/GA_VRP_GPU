@@ -61,7 +61,6 @@ def read_sol_file():
     problem_file = open(sys.argv[2],"r")
     lines = problem_file.readlines()
     better = np.asarray(lines[0].split(','), dtype=np.float32)
-    print(better)
     return(better)
 
 def plot_sol():
@@ -70,6 +69,7 @@ def plot_sol():
     plt.plot(data[0][2], data[0][3], c='r', marker='s')     # plot the depot
 
     better = read_sol_file()
+    print(data[data[:,0]==better[4+1]])
 
     for loc, i in enumerate(better):
         if i != 0:

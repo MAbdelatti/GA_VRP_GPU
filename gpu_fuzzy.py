@@ -624,7 +624,7 @@ def select_bests(parent_d_1, parent_d_2, child_d_1, child_d_2, pop_d):
 vrp_capacity, data, opt = readInput()
 popsize = 100
 min_n = 2 # Maximum number of crossover points
-max_n = 4 # Maximum number of crossover points
+max_n = 2 # Maximum number of crossover points
 
 try:
     generations = int(sys.argv[2])
@@ -702,7 +702,7 @@ count = 0
 count_index = 0
 best_sol = 0
 assign_child_1 = False
-last_shuffle = 10000
+last_shuffle = 5000
 while count <= generations:
     if minimum_cost <= opt:
         break
@@ -798,54 +798,68 @@ while count <= generations:
     asnumpy_child_d_1 = cp.asnumpy(child_d_1) # copy child_d_1 to host
     repeats = 0
     
-    x = np.unique(asnumpy_pop_d[:,1:], axis=0)
-    # print('X pre:', x.shape[0], x, '\n-------------\n')
-    while x.shape[0] < popsize:
-        if repeats >= popsize-1:
-            break
-        rndm = random.randint(0, popsize-1)
-        x = np.append(x, [asnumpy_child_d_1[rndm,1:]], axis=0)
-        x = np.unique(x, axis=0)
-        repeats += 1
-    # --------------------------------------------------------------------------
-    # Replacing duplicates with random individuals from child_d_2
-    asnumpy_child_d_2 = cp.asnumpy(child_d_2) # copy child_d_2 to host
-    repeats = 0
+    # Picking best solution
+    old_cost = minimum_cost
+    # best_sol = pop_d[0,:]
+    best_sol = pop_d[pop_d[:,-1].argmin()]
+    minimum_cost = best_sol[-1]
     
-    while x.shape[0] < popsize:
-        if repeats >= popsize-1:
-            break
-        rndm = random.randint(0, popsize-1)
-        x = np.append(x, [asnumpy_child_d_2[rndm,1:]], axis=0)       
-        x = np.unique(x, axis=0)
-        repeats += 1
-    # --------------------------------------------------------------------------
-    # Replacing duplicates with random individuals from parent_d_1
-    asnumpy_parent_d_1 = cp.asnumpy(parent_d_1) # copy parent_d_1 to host
-    repeats = 0
-    while x.shape[0] < popsize:
-        if repeats >= popsize-1:
-            break
-            
-        rndm = random.randint(0, popsize-1)
-        x = np.append(x, [asnumpy_parent_d_1[rndm,1:]], axis=0)       
-        x = np.unique(x, axis=0)
-        repeats += 1
-    # --------------------------------------------------------------------------
-    # Replacing duplicates with random individuals from parent_d_2
-    asnumpy_parent_d_2 = cp.asnumpy(parent_d_2) # copy parent_d_1 to host
-    repeats = 0
-    while x.shape[0] < popsize:
-        if repeats >= popsize-1:
-            break
-            
-        rndm = random.randint(0, popsize-1)
-        x = np.append(x, [asnumpy_parent_d_2[rndm,1:]], axis=0)       
-        # x = np.unique(x, axis=0)
-        repeats += 1
-    # --------------------------------------------------------------------------
-    x = np.insert(x, 0, count, axis=1)
-    pop_d = cp.array(x)
+    worst_sol = pop_d[pop_d[:,-1].argmax()]
+    worst_cost = worst_sol[-1]
+
+    delta = worst_cost-minimum_cost
+    average = cp.average(pop_d[:,-1])
+
+    # Apply the clone-restricting algorithm with a probability 1:15 or if premature convergence detected:
+    if random.randint(1,15) == 1 or delta <= 5:
+        x = np.unique(asnumpy_pop_d[:,1:], axis=0)
+        # print('X pre:', x.shape[0], x, '\n-------------\n')
+        while x.shape[0] < popsize:
+            if repeats >= popsize-1:
+                break
+            rndm = random.randint(0, popsize-1)
+            x = np.append(x, [asnumpy_child_d_1[rndm,1:]], axis=0)
+            x = np.unique(x, axis=0)
+            repeats += 1
+        # --------------------------------------------------------------------------
+        # Replacing duplicates with random individuals from child_d_2
+        asnumpy_child_d_2 = cp.asnumpy(child_d_2) # copy child_d_2 to host
+        repeats = 0
+        
+        while x.shape[0] < popsize:
+            if repeats >= popsize-1:
+                break
+            rndm = random.randint(0, popsize-1)
+            x = np.append(x, [asnumpy_child_d_2[rndm,1:]], axis=0)       
+            x = np.unique(x, axis=0)
+            repeats += 1
+        # --------------------------------------------------------------------------
+        # Replacing duplicates with random individuals from parent_d_1
+        asnumpy_parent_d_1 = cp.asnumpy(parent_d_1) # copy parent_d_1 to host
+        repeats = 0
+        while x.shape[0] < popsize:
+            if repeats >= popsize-1:
+                break
+                
+            rndm = random.randint(0, popsize-1)
+            x = np.append(x, [asnumpy_parent_d_1[rndm,1:]], axis=0)       
+            x = np.unique(x, axis=0)
+            repeats += 1
+        # --------------------------------------------------------------------------
+        # Replacing duplicates with random individuals from parent_d_2
+        asnumpy_parent_d_2 = cp.asnumpy(parent_d_2) # copy parent_d_1 to host
+        repeats = 0
+        while x.shape[0] < popsize:
+            if repeats >= popsize-1:
+                break
+                
+            rndm = random.randint(0, popsize-1)
+            x = np.append(x, [asnumpy_parent_d_2[rndm,1:]], axis=0)       
+            # x = np.unique(x, axis=0)
+            repeats += 1
+        # --------------------------------------------------------------------------
+        x = np.insert(x, 0, count, axis=1)
+        pop_d = cp.array(x)
     # --------------------------------------------------------------------------
     # Picking best solution
     old_cost = minimum_cost
@@ -899,7 +913,7 @@ while count <= generations:
         print('At first generation, Best: %d,'%minimum_cost, 'Worst: %d'%worst_cost, \
             'delta: %d'%delta, 'Avg: %.2f'%average)
         # print('POP:', pop_d, end='\n-----------\n')
-    elif (count+1)%500 == 0:
+    elif (count+1)%100 == 0:
         print('After %d generations, Best: %d,'%(count+1, minimum_cost), 'Worst: %d'%worst_cost, \
             'delta: %d'%delta, 'Avg: %.2f'%average)
     # elif count == generations:
