@@ -116,15 +116,17 @@ def calc_cost_gpu(data_d, popsize, vrp_capacity, cost_table_d):
 @cuda.jit
 def fitness_gpu(cost_table_d, pop, fitness_val_d):
     threadId_row, threadId_col = cuda.grid(2)
-    fitness_val_d[threadId_row, 0] = 0
-    pop[threadId_row, -1] = 1
-    
-    if threadId_row < pop.shape[0] and threadId_col == 15:
-        for i in range(pop.shape[1]-2):
-            fitness_val_d[threadId_row, 0] += \
-            cost_table_d[pop[threadId_row, i]-1, pop[threadId_row, i+1]-1]
+    stride_x, stride_y = cuda.gridsize(2)
 
-        pop[threadId_row, -1] = fitness_val_d[threadId_row,0]
+    for row in range(threadId_row, pop.shape[0], stride_x):
+        fitness_val_d[row, 0] = 0
+        pop[row, -1] = 1
+        
+        if threadId_col == 15:
+            for i in range(pop.shape[1]-2):
+                fitness_val_d[row, 0] += \
+                cost_table_d[pop[row, i]-1, pop[row, i+1]-1]
+            pop[row, -1] = fitness_val_d[row,0]
     
     cuda.syncthreads()
 
@@ -151,85 +153,89 @@ def fitness_gpu_new(cost_table_d, pop, fitness_val_d):
 def find_duplicates(pop, r_flag):
     
     threadId_row, threadId_col = cuda.grid(2)
+    stride_x, stride_y = cuda.gridsize(2)
 
-    if threadId_row < pop.shape[0] and threadId_col == 15:
-        # Detect duplicate nodes:
-        for i in range(2, pop.shape[1]-1):
-            for j in range(i, pop.shape[1]-1):
-                if pop[threadId_row, i] != r_flag and pop[threadId_row, j] == pop[threadId_row, i] and i != j:
-                    pop[threadId_row, j] = r_flag
+    for row in range(threadId_row, pop.shape[0], stride_x):
+        if threadId_col == 15:
+            # Detect duplicate nodes:
+            for i in range(2, pop.shape[1]-1):
+                for j in range(i, pop.shape[1]-1):
+                    if pop[row, i] != r_flag and pop[row, j] == pop[row, i] and i != j:
+                        pop[row, j] = r_flag
 @cuda.jit
 def shift_r_flag(r_flag, vrp_capacity, data_d, pop):
     threadId_row, threadId_col = cuda.grid(2)
+    stride_x, stride_y = cuda.gridsize(2)
 
-    if threadId_row < pop.shape[0] and threadId_col == 15:
-        
-        # Shift all r_flag values to the end of the list:        
-        for i in range(2, pop.shape[1]-2):
-            if pop[threadId_row,i] == r_flag:
-                k = i
-                while pop[threadId_row,k] == r_flag:
-                    k += 1
-                if k < pop.shape[1]-1:
-                    pop[threadId_row,i], pop[threadId_row,k] = pop[threadId_row,k], pop[threadId_row,i]
+    for row in range(threadId_row, pop.shape[0], stride_x):
+        if threadId_col == 15:           
+            # Shift all r_flag values to the end of the list:        
+            for i in range(2, pop.shape[1]-2):
+                if pop[row,i] == r_flag:
+                    k = i
+                    while pop[row,k] == r_flag:
+                        k += 1
+                    if k < pop.shape[1]-1:
+                        pop[row,i], pop[row,k] = pop[row,k], pop[row,i]
 @cuda.jit
-def find_missing_nodes(r_flag, data_d, missing_d, pop):
-    
+def find_missing_nodes(r_flag, data_d, missing_d, pop):    
     threadId_row, threadId_col = cuda.grid(2)
-    
-    if threadId_row < pop.shape[0] and threadId_col == 15:
+    stride_x, stride_y = cuda.gridsize(2)
 
-        missing_d[threadId_row, threadId_col] = 0        
-        # Find missing nodes in the solutions:
-        for i in range(1, data_d.shape[0]):
-            for j in range(2, pop.shape[1]-1):
-                if data_d[i,0] == pop[threadId_row,j]:
-                    missing_d[threadId_row, i] = 0
+    for row in range(threadId_row, pop.shape[0], stride_x):    
+        if threadId_col == 15:
+            missing_d[row, threadId_col] = 0        
+            # Find missing nodes in the solutions:
+            for i in range(1, data_d.shape[0]):
+                for j in range(2, pop.shape[1]-1):
+                    if data_d[i,0] == pop[row,j]:
+                        missing_d[row, i] = 0
+                        break
+                    else:
+                        missing_d[row, i] = data_d[i,0]
+
+@cuda.jit
+def add_missing_nodes(r_flag, data_d, missing_d, pop):   
+    threadId_row, threadId_col = cuda.grid(2)
+    stride_x, stride_y = cuda.gridsize(2)
+
+    for row in range(threadId_row, pop.shape[0], stride_x):       
+        if threadId_col == 15:           
+            # Add the missing nodes to the solution:
+            for k in range(missing_d.shape[1]):
+                for l in range(2, pop.shape[1]-1):
+                    if missing_d[row, k] != 0 and pop[row, l] == r_flag:
+                        pop[row, l] = missing_d[row, k]
+                        break
+@cuda.jit
+def cap_adjust(r_flag, vrp_capacity, data_d, pop):    
+    threadId_row, threadId_col = cuda.grid(2)
+    stride_x, stride_y = cuda.gridsize(2)
+
+    for row in range(threadId_row, pop.shape[0], stride_x):    
+        if threadId_col == 15:
+            reqcap = 0.0        # required capacity
+            
+            # Accumulate capacity:
+            i = 1
+            while pop[row, i] != r_flag:
+                i += 1  
+                if pop[row,i] == r_flag:
                     break
+            
+                if pop[row, i] != 1:
+                    reqcap += data_d[pop[row, i]-1, 1] # index starts from 0 while individuals start from 1                
+                    if reqcap > vrp_capacity:
+                        reqcap = 0
+                        # Insert '1' and shift right:
+                        new_val = 1
+                        rep_val = pop[row, i]
+                        for j in range(i, pop.shape[1]-2):
+                            pop[row, j] = new_val
+                            new_val = rep_val
+                            rep_val = pop[row, j+1]
                 else:
-                    missing_d[threadId_row, i] = data_d[i,0]
-
-@cuda.jit
-def add_missing_nodes(r_flag, data_d, missing_d, pop):
-    
-    threadId_row, threadId_col = cuda.grid(2)
-       
-    if threadId_row < pop.shape[0] and threadId_col == 15:
-        
-        # Add the missing nodes to the solution:
-        for k in range(missing_d.shape[1]):
-            for l in range(2, pop.shape[1]-1):
-                if missing_d[threadId_row, k] != 0 and pop[threadId_row, l] == r_flag:
-                    pop[threadId_row, l] = missing_d[threadId_row, k]
-                    break
-@cuda.jit
-def cap_adjust(r_flag, vrp_capacity, data_d, pop):
-    
-    threadId_row, threadId_col = cuda.grid(2)
-    
-    if threadId_row < pop.shape[0] and threadId_col == 15:
-        reqcap = 0.0        # required capacity
-        
-        # Accumulate capacity:
-        i = 1
-        while pop[threadId_row, i] != r_flag:
-            i += 1  
-            if pop[threadId_row,i] == r_flag:
-                break
-        
-            if pop[threadId_row, i] != 1:
-                reqcap += data_d[pop[threadId_row, i]-1, 1] # index starts from 0 while individuals start from 1                
-                if reqcap > vrp_capacity:
-                    reqcap = 0
-                    # Insert '1' and shift right:
-                    new_val = 1
-                    rep_val = pop[threadId_row, i]
-                    for j in range(i, pop.shape[1]-2):
-                        pop[threadId_row, j] = new_val
-                        new_val = rep_val
-                        rep_val = pop[threadId_row, j+1]
-            else:
-                reqcap = 0.0
+                    reqcap = 0.0
     cuda.syncthreads()
 
 @cuda.jit
@@ -237,26 +243,26 @@ def cleanup_r_flag(r_flag, pop):
     threadId_row, threadId_col = cuda.grid(2)
     stride_x, stride_y = cuda.gridsize(2)
 
-    if threadId_row < pop.shape[0]:
+    for row in range(threadId_row, pop.shape[0], stride_x):
         for col in range(threadId_col, pop.shape[1], stride_y):
-            if pop[threadId_row, col] == r_flag:
-                pop[threadId_row, col] = 1
+            if pop[row, col] == r_flag:
+                pop[row, col] = 1
     
     cuda.syncthreads()
 # ------------------------- End adjusting individuals ---------------------------------------------
 
 # ------------------------- Start initializing individuals ----------------------------------------
 @cuda.jit
-def initializePop_gpu(rng_states, data_d, missing_d, pop_d):
-    
+def initializePop_gpu(rng_states, data_d, missing_d, pop_d):    
     threadId_row, threadId_col = cuda.grid(2)
     stride_x, stride_y = cuda.gridsize(2)
+
+    for row in range(threadId_row, pop_d.shape[0], stride_x):
     # Generate the individuals from the nodes in data_d:
-    if threadId_row < pop_d.shape[0]:
         for col in range(threadId_col, data_d.shape[0]+1, stride_y):
-            pop_d[threadId_row, col] = data_d[col-1, 0]
+            pop_d[row, col] = data_d[col-1, 0]
         
-        pop_d[threadId_row, 0], pop_d[threadId_row, 1] = 1, 1
+        pop_d[row, 0], pop_d[row, 1] = 1, 1
         
     # # Randomly shuffle each individual on a separate thread:      
     # if threadId_row < pop_d.shape[0] and threadId_col > 1:
@@ -278,10 +284,10 @@ def reset_to_ones(pop):
    
     threadId_row, threadId_col = cuda.grid(2)
     stride_x, stride_y = cuda.gridsize(2)
-    
-    if threadId_row < pop.shape[0]:
+
+    for row in range(threadId_row, pop.shape[0], stride_x):    
         for col in range(threadId_col, pop.shape[1], stride_y):
-            pop[threadId_row, col] = 1   
+            pop[row, col] = 1   
     cuda.syncthreads()
     
 @cuda.jit
@@ -289,49 +295,50 @@ def two_opt(pop, cost_table, candid_d_3):
     
     threadId_row, threadId_col = cuda.grid(2)
     stride_x, stride_y = cuda.gridsize(2)
-    
-    for col in range(threadId_col, pop.shape[1], stride_y):
-        # candid_d_3[threadId_row, col] = 1
-        if threadId_row < pop.shape[0] and col+2 < pop.shape[1] :
-            # Divide solution into routes:
-            if pop[threadId_row, col] == 1 and pop[threadId_row, col+1] != 1 and pop[threadId_row, col+2] != 1:
-                route_length = 1
-                while pop[threadId_row, col+route_length] != 1 and col+route_length < pop.shape[1]:
-                    candid_d_3[threadId_row, col+route_length] = pop[threadId_row, col+route_length]
-                    route_length += 1
 
-                # Now we have candid_d_3 has the routes to be optimized for every row solution
-                total_cost = 0
-                min_cost =0
+    for row in range(threadId_row, pop.shape[0], stride_x):    
+        for col in range(threadId_col, pop.shape[1], stride_y):
+            # candid_d_3[row, col] = 1
+            if col+2 < pop.shape[1] :
+                # Divide solution into routes:
+                if pop[row, col] == 1 and pop[row, col+1] != 1 and pop[row, col+2] != 1:
+                    route_length = 1
+                    while pop[row, col+route_length] != 1 and col+route_length < pop.shape[1]:
+                        candid_d_3[row, col+route_length] = pop[row, col+route_length]
+                        route_length += 1
 
-                for i in range(0, route_length):
-                    min_cost += \
-                        cost_table[candid_d_3[threadId_row,col+i]-1, candid_d_3[threadId_row,col+i+1]-1]
-            
-                # ------- The two opt algorithm --------
-        
-                # So far, the best route is the given one (in candid_d_3)
-                improved = True
-                while improved:
-                    improved = False
-                    for i in range(1, route_length-1):
-                            # swap every two pairs
-                            candid_d_3[threadId_row, col+i], candid_d_3[threadId_row, col+i+1] = \
-                            candid_d_3[threadId_row, col+i+1], candid_d_3[threadId_row, col+i]
-                            
-                            for j in range(0, route_length):
-                                total_cost += cost_table[candid_d_3[threadId_row,col+j]-1,\
-                                              candid_d_3[threadId_row,col+j+1]-1]
-                            
-                            if total_cost < min_cost:
-                                min_cost = total_cost
-                                improved = True
-                            else:
-                                candid_d_3[threadId_row, col+i+1], candid_d_3[threadId_row, col+i]=\
-                                candid_d_3[threadId_row, col+i], candid_d_3[threadId_row, col+i+1]
+                    # Now we have candid_d_3 has the routes to be optimized for every row solution
+                    total_cost = 0
+                    min_cost =0
+
+                    for i in range(0, route_length):
+                        min_cost += \
+                            cost_table[candid_d_3[row,col+i]-1, candid_d_3[row,col+i+1]-1]
                 
-                for k in range(0, route_length):
-                    pop[threadId_row, col+k] = candid_d_3[threadId_row, col+k]
+                    # ------- The two opt algorithm --------
+            
+                    # So far, the best route is the given one (in candid_d_3)
+                    improved = True
+                    while improved:
+                        improved = False
+                        for i in range(1, route_length-1):
+                                # swap every two pairs
+                                candid_d_3[row, col+i], candid_d_3[row, col+i+1] = \
+                                candid_d_3[row, col+i+1], candid_d_3[row, col+i]
+                                
+                                for j in range(0, route_length):
+                                    total_cost += cost_table[candid_d_3[row,col+j]-1,\
+                                                candid_d_3[row,col+j+1]-1]
+                                
+                                if total_cost < min_cost:
+                                    min_cost = total_cost
+                                    improved = True
+                                else:
+                                    candid_d_3[row, col+i+1], candid_d_3[row, col+i]=\
+                                    candid_d_3[row, col+i], candid_d_3[row, col+i+1]
+                    
+                    for k in range(0, route_length):
+                        pop[row, col+k] = candid_d_3[row, col+k]
 # ------------------------- End two-opt calculations --------------------------------------------
 
 # ------------------------- Start evolution process ---------------------------------------------
@@ -341,46 +348,42 @@ def select_candidates(pop_d, random_arr_d, candid_d_1, candid_d_2, candid_d_3, c
     
     threadId_row, threadId_col = cuda.grid(2)
     stride_x, stride_y = cuda.gridsize(2)
-    
-    if threadId_row < pop_d.shape[0]:
+
+    for row in range(threadId_row, pop_d.shape[0], stride_x):    
         for col in range(threadId_col, pop_d.shape[1], stride_y):
             if assign_child_1:
             #   First individual in pop_d must be selected:
-                candid_d_1[threadId_row, col] = pop_d[0, col]
-                candid_d_2[threadId_row, col] = pop_d[random_arr_d[threadId_row, 1], col]
-                candid_d_3[threadId_row, col] = pop_d[random_arr_d[threadId_row, 2], col]
-                candid_d_4[threadId_row, col] = pop_d[random_arr_d[threadId_row, 3], col]
+                candid_d_1[row, col] = pop_d[0, col]
+                candid_d_2[row, col] = pop_d[random_arr_d[row, 1], col]
+                candid_d_3[row, col] = pop_d[random_arr_d[row, 2], col]
+                candid_d_4[row, col] = pop_d[random_arr_d[row, 3], col]
             else:
             #   Create a pool of 4 randomly selected individuals:
-                candid_d_1[threadId_row, col] = pop_d[random_arr_d[threadId_row, 0], col]
-                candid_d_2[threadId_row, col] = pop_d[random_arr_d[threadId_row, 1], col]
-                candid_d_3[threadId_row, col] = pop_d[random_arr_d[threadId_row, 2], col]
-                candid_d_4[threadId_row, col] = pop_d[random_arr_d[threadId_row, 3], col]
+                candid_d_1[row, col] = pop_d[random_arr_d[row, 0], col]
+                candid_d_2[row, col] = pop_d[random_arr_d[row, 1], col]
+                candid_d_3[row, col] = pop_d[random_arr_d[row, 2], col]
+                candid_d_4[row, col] = pop_d[random_arr_d[row, 3], col]
     
     cuda.syncthreads()
 @cuda.jit  
 def select_parents(pop_d, candid_d_1, candid_d_2, candid_d_3, candid_d_4, parent_d_1, parent_d_2):
-
     threadId_row, threadId_col = cuda.grid(2)
     stride_x, stride_y = cuda.gridsize(2)
 
-    if threadId_row < pop_d.shape[0]:
+    for row in range(threadId_row, pop_d.shape[0], stride_x):
         for col in range(threadId_col, pop_d.shape[1], stride_y):
-
-        # Selecting 2 parents with binary tournament
-    
-        # ----------------------------1st Parent--------------------------------------------------
-            
-            if candid_d_1[threadId_row, -1] < candid_d_2[threadId_row, -1]:
-                parent_d_1[threadId_row, col] = candid_d_1[threadId_row, col]
+        # Selecting 2 parents with binary tournament   
+        # ----------------------------1st Parent--------------------------------------------------            
+            if candid_d_1[row, -1] < candid_d_2[row, -1]:
+                parent_d_1[row, col] = candid_d_1[row, col]
             else:
-                parent_d_1[threadId_row, col] = candid_d_2[threadId_row, col]
+                parent_d_1[row, col] = candid_d_2[row, col]
 
             # ----------------------------2nd Parent--------------------------------------------------
-            if candid_d_3[threadId_row, -1] < candid_d_4[threadId_row, -1]:
-                parent_d_2[threadId_row, col] = candid_d_3[threadId_row, col]
+            if candid_d_3[row, -1] < candid_d_4[row, -1]:
+                parent_d_2[row, col] = candid_d_3[row, col]
             else:
-                parent_d_2[threadId_row, col] = candid_d_4[threadId_row, col]
+                parent_d_2[row, col] = candid_d_4[row, col]
        
     cuda.syncthreads()
 
@@ -390,241 +393,244 @@ def number_cut_points(candid_d_1, candid_d_2, candid_d_3, candid_d_4, parent_d_1
     threadId_row, threadId_col = cuda.grid(2)
     stride_x, stride_y = cuda.gridsize(2)
 
-    for col in range(threadId_col, candid_d_1.shape[1], stride_y):
-        candid_d_1[threadId_row, col] = 1
-        candid_d_2[threadId_row, col] = 1
-        candid_d_3[threadId_row, col] = 1
-        candid_d_4[threadId_row, col] = 1
+    for row in range(threadId_row, candid_d_1.shape[0], stride_x):
+        for col in range(threadId_col, candid_d_1.shape[1], stride_y):
+            candid_d_1[row, col] = 1
+            candid_d_2[row, col] = 1
+            candid_d_3[row, col] = 1
+            candid_d_4[row, col] = 1
 
-    # Calculate the actual length of parents
-    if threadId_row < candid_d_1.shape[0] and threadId_col == 15:
-        for i in range(0, candid_d_1.shape[1]-2):
-            if not (parent_d_1[threadId_row, i] == 1 and parent_d_1[threadId_row, i+1] == 1):
-                candid_d_1[threadId_row, 2] += 1
-                
-            if not (parent_d_2[threadId_row, i] == 1 and parent_d_2[threadId_row, i+1] == 1):
-                candid_d_2[threadId_row, 2] += 1
+        # Calculate the actual length of parents
+        if threadId_col == 15:
+            for i in range(0, candid_d_1.shape[1]-2):
+                if not (parent_d_1[row, i] == 1 and parent_d_1[row, i+1] == 1):
+                    candid_d_1[row, 2] += 1
+                    
+                if not (parent_d_2[row, i] == 1 and parent_d_2[row, i+1] == 1):
+                    candid_d_2[row, 2] += 1
 
-        # Minimum length of the two parents
-        candid_d_1[threadId_row, 3] = \
-        min(candid_d_1[threadId_row, 2], candid_d_2[threadId_row, 2]) 
+            # Minimum length of the two parents
+            candid_d_1[row, 3] = \
+            min(candid_d_1[row, 2], candid_d_2[row, 2]) 
 
-        # Number of cutting points = (n/5 - 2)
-        # candid_d_1[threadId_row, 4] = candid_d_1[threadId_row, 3]//20 - 2
-        n_points = max(min_n, (count%(max_n*4000))//4000) # the n_points increases one every 5000 iterations till 20 then resets to 2 and so on
-        candid_d_1[threadId_row, 4] = n_points
+            # Number of cutting points = (n/5 - 2)
+            # candid_d_1[row, 4] = candid_d_1[row, 3]//20 - 2
+            n_points = max(min_n, (count%(max_n*4000))//4000) # the n_points increases one every 5000 iterations till 20 then resets to 2 and so on
+            candid_d_1[row, 4] = n_points
     
     cuda.syncthreads()
 @cuda.jit
 def add_cut_points(candid_d_1, candid_d_2, rng_states):
-
     threadId_row, threadId_col = cuda.grid(2)
-    
-    if threadId_row < candid_d_1.shape[0] and threadId_col == 15:
-        no_cuts = candid_d_1[threadId_row, 4]
-        
-        for i in range(1, no_cuts+1):
-            rnd_val = 0
-            
-        # Generate unique random numbers as cut indices:
-            for j in range(1, no_cuts+1):
-                while rnd_val == 0 or rnd_val == candid_d_2[threadId_row, j]:
-                    # rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row)\
-                    #       *(candid_d_1[threadId_row, 3] - 2) + 2 # random*(max-min)+min
-                    rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row*candid_d_1.shape[1])\
-                          *(candid_d_1[threadId_row, 3] - 2) + 2 # random*(max-min)+min
-                    # rnd = xoroshiro128p_normal_float32(rng_states, threadId_row*candid_d_1.shape[1])\
-                    #       *(candid_d_1[threadId_row, 3] - 2) + 2 # random*(max-min)+min
-                    rnd_val = int(rnd)+2            
-            
-            candid_d_2[threadId_row, i+1] = rnd_val
-            
-        # Sorting the crossover points:
-        if threadId_col == 15: # Really! it is already up there! see the main if statement.
-            for i in range(2, no_cuts+2):
-                min_val = candid_d_2[threadId_row, i]
-                min_index = i
+    stride_x, stride_y = cuda.gridsize(2)
 
-                for j in range(i + 1, no_cuts+2):
-                    # Select the smallest value
-                    if candid_d_2[threadId_row, j] < candid_d_2[threadId_row, min_index]:
-                        min_index = j
+    for row in range(threadId_row, candid_d_1.shape[0], stride_x):    
+        if threadId_col == 15:
+            no_cuts = candid_d_1[row, 4]
+            
+            for i in range(1, no_cuts+1):
+                rnd_val = 0
+                
+            # Generate unique random numbers as cut indices:
+                for j in range(1, no_cuts+1):
+                    while rnd_val == 0 or rnd_val == candid_d_2[row, j]:
+                        # rnd = xoroshiro128p_uniform_float32(rng_states, row)\
+                        #       *(candid_d_1[row, 3] - 2) + 2 # random*(max-min)+min
+                        rnd = xoroshiro128p_uniform_float32(rng_states, row*candid_d_1.shape[1])\
+                            *(candid_d_1[row, 3] - 2) + 2 # random*(max-min)+min
+                        # rnd = xoroshiro128p_normal_float32(rng_states, row*candid_d_1.shape[1])\
+                        #       *(candid_d_1[row, 3] - 2) + 2 # random*(max-min)+min
+                        rnd_val = int(rnd)+2            
+                
+                candid_d_2[row, i+1] = rnd_val
+                
+            # Sorting the crossover points:
+            if threadId_col == 15: # Really! it is already up there! see the main if statement.
+                for i in range(2, no_cuts+2):
+                    min_val = candid_d_2[row, i]
+                    min_index = i
 
-                candid_d_2[threadId_row, min_index], candid_d_2[threadId_row, i] = \
-                candid_d_2[threadId_row, i], candid_d_2[threadId_row, min_index]
+                    for j in range(i + 1, no_cuts+2):
+                        # Select the smallest value
+                        if candid_d_2[row, j] < candid_d_2[row, min_index]:
+                            min_index = j
+
+                    candid_d_2[row, min_index], candid_d_2[row, i] = \
+                    candid_d_2[row, i], candid_d_2[row, min_index]
 
     cuda.syncthreads()
 @cuda.jit
 def cross_over_gpu(candid_d_1, candid_d_2, child_d_1, child_d_2, parent_d_1, parent_d_2):
-    
     threadId_row, threadId_col = cuda.grid(2)
     stride_x, stride_y = cuda.gridsize(2)
 
-    for col in range(threadId_col, candid_d_1.shape[1], stride_y):
-        if threadId_row < candid_d_1.shape[0] and col > 1:
+    for row in range(threadId_row, candid_d_1.shape[0], stride_x):
+        for col in range(threadId_col, candid_d_1.shape[1], stride_y):
+            if col > 1:
+                child_d_1[row, col] = parent_d_1[row, col]
+                child_d_2[row, col] = parent_d_2[row, col]
 
-            child_d_1[threadId_row, col] = parent_d_1[threadId_row, col]
-            child_d_2[threadId_row, col] = parent_d_2[threadId_row, col]
+                # Perform the crossover:
+                no_cuts = candid_d_1[row, 4]
+                if col < candid_d_2[row, 2]: # Swap from first element to first cut point
+                    child_d_1[row, col], child_d_2[row, col] =\
+                    child_d_2[row, col], child_d_1[row, col]
 
-            # Perform the crossover:
-            no_cuts = candid_d_1[threadId_row, 4]
-            if col < candid_d_2[threadId_row, 2]: # Swap from first element to first cut point
-                child_d_1[threadId_row, col], child_d_2[threadId_row, col] =\
-                child_d_2[threadId_row, col], child_d_1[threadId_row, col]
+                if no_cuts%2 == 0: # For even number of cuts, swap from the last cut point to the end
+                    if col > candid_d_2[row, no_cuts+1] and col < child_d_1.shape[1]-1:
+                        child_d_1[row, col], child_d_2[row, col] =\
+                        child_d_2[row, col], child_d_1[row, col]
 
-            if no_cuts%2 == 0: # For even number of cuts, swap from the last cut point to the end
-                if col > candid_d_2[threadId_row, no_cuts+1] and col < child_d_1.shape[1]-1:
-                    child_d_1[threadId_row, col], child_d_2[threadId_row, col] =\
-                    child_d_2[threadId_row, col], child_d_1[threadId_row, col]
-
-            for j in range(2, no_cuts+1):
-                cut_idx = candid_d_2[threadId_row, j]
-                if no_cuts%2 == 0:
-                    if j%2==1 and col >= cut_idx and col < candid_d_2[threadId_row, j+1]:
-                        child_d_1[threadId_row, col], child_d_2[threadId_row, col] =\
-                        child_d_2[threadId_row, col], child_d_1[threadId_row, col]
-                
-                elif no_cuts%2 == 1:
-                    if j%2==1 and col>=cut_idx and col < candid_d_2[threadId_row, j+1]:
-                        child_d_1[threadId_row, col], child_d_2[threadId_row, col] =\
-                        child_d_2[threadId_row, col], child_d_1[threadId_row, col]
+                for j in range(2, no_cuts+1):
+                    cut_idx = candid_d_2[row, j]
+                    if no_cuts%2 == 0:
+                        if j%2==1 and col >= cut_idx and col < candid_d_2[row, j+1]:
+                            child_d_1[row, col], child_d_2[row, col] =\
+                            child_d_2[row, col], child_d_1[row, col]
+                    
+                    elif no_cuts%2 == 1:
+                        if j%2==1 and col>=cut_idx and col < candid_d_2[row, j+1]:
+                            child_d_1[row, col], child_d_2[row, col] =\
+                            child_d_2[row, col], child_d_1[row, col]
 
     cuda.syncthreads()
 # ------------------------------------Mutation part -----------------------------------------------
 @cuda.jit
-def mutate(rng_states, child_d_1, child_d_2):
-    
+def mutate(rng_states, child_d_1, child_d_2):    
     threadId_row, threadId_col = cuda.grid(2)
-    
+    stride_x, stride_y = cuda.gridsize(2)
+
+    for row in range(threadId_row, child_d_1.shape[0], stride_x):    
     # Swap two positions in the children, with 1:40 probability
-    if threadId_row < child_d_1.shape[0] and threadId_col == 15:
-        mutation_prob = 15
-        
-        # rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row)\
-        #       *(mutation_prob - 1) + 1 # random*(max-min)+min
-        rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row*child_d_1.shape[1])\
-              *(mutation_prob - 1) + 1 # random*(max-min)+min
-        # rnd = xoroshiro128p_normal_float32(rng_states, threadId_row*child_d_1.shape[1])\
-        #       *(mutation_prob - 1) + 1 # random*(max-min)+min
-        rnd_val = int(rnd)+2
-        if rnd_val == 1:
-            i1 = 1
+        if threadId_col == 15:
+            mutation_prob = 15
             
-            # Repeat random selection if depot was selected:
-            while child_d_1[threadId_row, i1] == 1:
-                # rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row)\
-                #       *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
-                rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row*child_d_1.shape[1])\
-                    *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
-                # rnd = xoroshiro128p_normal_float32(rng_states, threadId_row*child_d_1.shape[1])\
-                #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
-                i1 = int(rnd)+2        
-
-            i2 = 1
-            while child_d_1[threadId_row, i2] == 1:
-                # rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row)\
-                #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
-                rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row*child_d_1.shape[1])\
-                    *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
-                # rnd = xoroshiro128p_normal_float32(rng_states, threadId_row*child_d_1.shape[1])\
-                #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
-                i2 = int(rnd)+2 
+            # rnd = xoroshiro128p_uniform_float32(rng_states, row)\
+            #       *(mutation_prob - 1) + 1 # random*(max-min)+min
+            rnd = xoroshiro128p_uniform_float32(rng_states, row*child_d_1.shape[1])\
+                *(mutation_prob - 1) + 1 # random*(max-min)+min
+            # rnd = xoroshiro128p_normal_float32(rng_states, row*child_d_1.shape[1])\
+            #       *(mutation_prob - 1) + 1 # random*(max-min)+min
+            rnd_val = int(rnd)+2
+            if rnd_val == 1:
+                i1 = 1
                 
-            child_d_1[threadId_row, i1], child_d_1[threadId_row, i2] = \
-            child_d_1[threadId_row, i2], child_d_1[threadId_row, i1]
+                # Repeat random selection if depot was selected:
+                while child_d_1[row, i1] == 1:
+                    # rnd = xoroshiro128p_uniform_float32(rng_states, row)\
+                    #       *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
+                    rnd = xoroshiro128p_uniform_float32(rng_states, row*child_d_1.shape[1])\
+                        *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
+                    # rnd = xoroshiro128p_normal_float32(rng_states, row*child_d_1.shape[1])\
+                    #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
+                    i1 = int(rnd)+2        
 
-        # Repeat for the second child:    
-            i1 = 1
+                i2 = 1
+                while child_d_1[row, i2] == 1:
+                    # rnd = xoroshiro128p_uniform_float32(rng_states, row)\
+                    #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
+                    rnd = xoroshiro128p_uniform_float32(rng_states, row*child_d_1.shape[1])\
+                        *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
+                    # rnd = xoroshiro128p_normal_float32(rng_states, row*child_d_1.shape[1])\
+                    #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
+                    i2 = int(rnd)+2 
+                    
+                child_d_1[row, i1], child_d_1[row, i2] = \
+                child_d_1[row, i2], child_d_1[row, i1]
+
+            # Repeat for the second child:    
+                i1 = 1
+                
+                # Repeat random selection if depot was selected:
+                while child_d_2[row, i1] == 1:
+                    # rnd = xoroshiro128p_uniform_float32(rng_states, row)\
+                    #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
+                    rnd = xoroshiro128p_uniform_float32(rng_states, row*child_d_2.shape[1])\
+                        *(child_d_2.shape[1] - 4) + 2 # random*(max-min)+min
+                    # rnd = xoroshiro128p_normal_float32(rng_states, row*child_d_2.shape[1])\
+                    #     *(child_d_2.shape[1] - 4) + 2 # random*(max-min)+min
+                    i1 = int(rnd)+2        
+
+                i2 = 1
+                while child_d_2[row, i2] == 1:
+                    # rnd = xoroshiro128p_uniform_float32(rng_states, row)\
+                    #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
+                    rnd = xoroshiro128p_uniform_float32(rng_states, row*child_d_2.shape[1])\
+                        *(child_d_2.shape[1] - 4) + 2 # random*(max-min)+min
+                    # rnd = xoroshiro128p_normal_float32(rng_states, row*child_d_2.shape[1])\
+                    #     *(child_d_2.shape[1] - 4) + 2 # random*(max-min)+min
+                    i2 = int(rnd)+2 
+                    
+                child_d_2[row, i1], child_d_1[row, i2] = \
+                child_d_2[row, i2], child_d_1[row, i1]
             
-            # Repeat random selection if depot was selected:
-            while child_d_2[threadId_row, i1] == 1:
-                # rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row)\
-                #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
-                rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row*child_d_2.shape[1])\
-                    *(child_d_2.shape[1] - 4) + 2 # random*(max-min)+min
-                # rnd = xoroshiro128p_normal_float32(rng_states, threadId_row*child_d_2.shape[1])\
-                #     *(child_d_2.shape[1] - 4) + 2 # random*(max-min)+min
-                i1 = int(rnd)+2        
-
-            i2 = 1
-            while child_d_2[threadId_row, i2] == 1:
-                # rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row)\
-                #     *(child_d_1.shape[1] - 4) + 2 # random*(max-min)+min
-                rnd = xoroshiro128p_uniform_float32(rng_states, threadId_row*child_d_2.shape[1])\
-                    *(child_d_2.shape[1] - 4) + 2 # random*(max-min)+min
-                # rnd = xoroshiro128p_normal_float32(rng_states, threadId_row*child_d_2.shape[1])\
-                #     *(child_d_2.shape[1] - 4) + 2 # random*(max-min)+min
-                i2 = int(rnd)+2 
-                
-            child_d_2[threadId_row, i1], child_d_1[threadId_row, i2] = \
-            child_d_2[threadId_row, i2], child_d_1[threadId_row, i1]
-        
         cuda.syncthreads()
 # -------------------------- Update population part -----------------------------------------------
 @cuda.jit
 def select_individual(index, pop_d, individual):
     threadId_row, threadId_col = cuda.grid(2)
-    if threadId_row == index and threadId_col < pop_d.shape[1]:
-        pop_d[threadId_row, threadId_col] = individual[threadId_row, threadId_col]
+    stride_x, stride_y = cuda.gridsize(2)
+
+    for row in range(threadId_row, pop_d.shape[0], stride_x):
+        if row == index and threadId_col < pop_d.shape[1]:
+            pop_d[row, threadId_col] = individual[row, threadId_col]
 
 @cuda.jit
-def update_pop(count, parent_d_1, parent_d_2, child_d_1, child_d_2, pop_d):
-    
+def update_pop(count, parent_d_1, parent_d_2, child_d_1, child_d_2, pop_d):    
     threadId_row, threadId_col = cuda.grid(2)
     stride_x, stride_y = cuda.gridsize(2)
-    
-    for col in range(threadId_col, pop_d.shape[1], stride_y):
-        if threadId_row < pop_d.shape[0]:
 
-            if child_d_1[threadId_row, -1] <= parent_d_1[threadId_row, -1] and \
-            child_d_1[threadId_row, -1] <= parent_d_2[threadId_row, -1] and \
-            child_d_1[threadId_row, -1] <= child_d_2[threadId_row, -1]:
+    for row in range(threadId_row, pop_d.shape[0], stride_x):    
+        for col in range(threadId_col, pop_d.shape[1], stride_y):
+            if child_d_1[row, -1] <= parent_d_1[row, -1] and \
+            child_d_1[row, -1] <= parent_d_2[row, -1] and \
+            child_d_1[row, -1] <= child_d_2[row, -1]:
 
-                pop_d[threadId_row, col] = child_d_1[threadId_row, col]
-                pop_d[threadId_row, 0] = count
+                pop_d[row, col] = child_d_1[row, col]
+                pop_d[row, 0] = count
 
-            elif child_d_2[threadId_row, -1] <= parent_d_1[threadId_row, -1] and \
-            child_d_2[threadId_row, -1] <= parent_d_2[threadId_row, -1] and \
-            child_d_2[threadId_row, -1] <= child_d_1[threadId_row, -1]:
+            elif child_d_2[row, -1] <= parent_d_1[row, -1] and \
+            child_d_2[row, -1] <= parent_d_2[row, -1] and \
+            child_d_2[row, -1] <= child_d_1[row, -1]:
 
-                pop_d[threadId_row, col] = child_d_2[threadId_row, col]
-                pop_d[threadId_row, 0] = count
+                pop_d[row, col] = child_d_2[row, col]
+                pop_d[row, 0] = count
 
-            elif parent_d_1[threadId_row, -1] <= parent_d_2[threadId_row, -1] and \
-            parent_d_1[threadId_row, -1] <= child_d_1[threadId_row, -1] and \
-            parent_d_1[threadId_row, -1] <= child_d_2[threadId_row, -1]:
+            elif parent_d_1[row, -1] <= parent_d_2[row, -1] and \
+            parent_d_1[row, -1] <= child_d_1[row, -1] and \
+            parent_d_1[row, -1] <= child_d_2[row, -1]:
 
-                pop_d[threadId_row, col] = parent_d_1[threadId_row, col]
-                pop_d[threadId_row, 0] = count
+                pop_d[row, col] = parent_d_1[row, col]
+                pop_d[row, 0] = count
 
-            elif parent_d_2[threadId_row, -1] <= parent_d_1[threadId_row, -1] and \
-            parent_d_2[threadId_row, -1] <= child_d_1[threadId_row, -1] and \
-            parent_d_2[threadId_row, -1] <= child_d_2[threadId_row, -1]:
+            elif parent_d_2[row, -1] <= parent_d_1[row, -1] and \
+            parent_d_2[row, -1] <= child_d_1[row, -1] and \
+            parent_d_2[row, -1] <= child_d_2[row, -1]:
 
-                pop_d[threadId_row, col] = parent_d_2[threadId_row, col]
-                pop_d[threadId_row, 0] = count
+                pop_d[row, col] = parent_d_2[row, col]
+                pop_d[row, 0] = count
                 
     cuda.syncthreads()
 
 # ------------------------- Definition of CPU functions ----------------------------------------------   
-def select_bests(parent_d_1, parent_d_2, child_d_1, child_d_2, pop_d):
+def select_bests(parent_d_1, parent_d_2, child_d_1, child_d_2, pop_d, popsize):
     # Select the best 5% from paernt 1 & parent 2:
-    pool = parent_d_1[parent_d_1[:,-1].argsort()][0:5,:]
-    pool = cp.concatenate((pool, parent_d_2[parent_d_2[:,-1].argsort()][0:5,:]))
+    pool = parent_d_1[parent_d_1[:,-1].argsort()][0:0.05*popsize,:]
+    pool = cp.concatenate((pool, parent_d_2[parent_d_2[:,-1].argsort()][0:0.05*popsize,:]))
     pool = pool[pool[:,-1].argsort()]
 
     # Sort child 1 & child 2:
     child_d_1 = child_d_1[child_d_1[:,-1].argsort()]
     child_d_2 = child_d_2[child_d_2[:,-1].argsort()]
 
-    pop_d[0:5, :] = pool[0:5, :]
-    pop_d[5:53, :] = child_d_1[0:48, :]
-    pop_d[53:100, :] = child_d_2[0:47, :]
+    pop_d[0:0.05*popsize, :] = pool[0:0.05*popsize, :]
+    pop_d[0.05*popsize:0.53*popsize, :] = child_d_1[0:0.48*popsize, :]
+    pop_d[0.53*popsize:popsize, :] = child_d_2[0:0.47*popsize, :]
 # ------------------------- Start Main ------------------------------------------------------------
 vrp_capacity, data, opt = readInput()
 popsize = 100
 min_n = 2 # Maximum number of crossover points
-max_n = 4 # Maximum number of crossover points
+max_n = 2 # Maximum number of crossover points
 
 try:
     generations = int(sys.argv[2])
@@ -731,7 +737,7 @@ while count <= generations:
 
     cross_over_gpu[blocks, threads_per_block](candid_d_1, candid_d_2, child_d_1, child_d_2, parent_d_1, parent_d_2)
     # Performing mutation
-    rng_states = create_xoroshiro128p_states(popsize, seed=random.randint(2,2*10**5))
+    rng_states = create_xoroshiro128p_states(popsize*child_d_1.shape[1], seed=random.randint(2,2*10**5))
     mutate[blocks, threads_per_block](rng_states, child_d_1, child_d_2)
 
     # Adjusting child_1 array
@@ -770,29 +776,9 @@ while count <= generations:
     # --------------------------------------------------------------------------
     # Creating the new population from parents and children
     # update_pop[blocks, threads_per_block](count, parent_d_1, parent_d_2, child_d_1, child_d_2, pop_d)
-    select_bests(parent_d_1, parent_d_2, child_d_1, child_d_2, pop_d)
+    select_bests(parent_d_1, parent_d_2, child_d_1, child_d_2, pop_d, popsize)
     # --------------------------------------------------------------------------
-    
-    #  Testing a new duplicate checking algorithm
-    # Replacing duplicates with random individuals from child_d_1
-    # for my_index, individual in enumerate(pop_d):
-    #     row_is_True = cp.zeros((popsize,1), dtype=np.int32)
-    #     repeats = 0
-    #     z = cp.equal(individual, pop_d)
-    #     cp.all(z, axis=1, out=row_is_True, keepdims=True)
-    #     while any(row_is_True[0:my_index, 0]) or any(row_is_True[my_index+1:, 0]):
-    #         if repeats >= popsize-1:
-    #             break
-    #         rng_states = create_xoroshiro128p_states(popsize, seed= timer()//1)
-    #         x = timer()
-    #         replace_duplicates[blocks, threads_per_block](my_index, rng_states, row_is_True, child_d_1, pop_d)       
-    #         print(timer()-x)
-    #         z = cp.equal(individual, pop_d)
-    #         cp.all(z, axis=1, out=row_is_True, keepdims=True)
-    #         repeats += 1
-    #         marwan
-    # # --------------------------------------------------------------------------
-    
+       
     # Replacing duplicates with random individuals from child_d_1
     asnumpy_pop_d = cp.asnumpy(pop_d) # copy pop_d to host, HOWEVER, it throws cudaErrorIllegalAddress in >= 800 nodes
     asnumpy_child_d_1 = cp.asnumpy(child_d_1) # copy child_d_1 to host
@@ -809,28 +795,28 @@ while count <= generations:
         repeats += 1
     # --------------------------------------------------------------------------
     # Replacing duplicates with random individuals from child_d_2
-    asnumpy_child_d_2 = cp.asnumpy(child_d_2) # copy child_d_2 to host
-    repeats = 0
+    # asnumpy_child_d_2 = cp.asnumpy(child_d_2) # copy child_d_2 to host
+    # repeats = 0
     
-    while x.shape[0] < popsize:
-        if repeats >= popsize-1:
-            break
-        rndm = random.randint(0, popsize-1)
-        x = np.append(x, [asnumpy_child_d_2[rndm,1:]], axis=0)       
-        x = np.unique(x, axis=0)
-        repeats += 1
+    # while x.shape[0] < popsize:
+    #     if repeats >= popsize-1:
+    #         break
+    #     rndm = random.randint(0, popsize-1)
+    #     x = np.append(x, [asnumpy_child_d_2[rndm,1:]], axis=0)       
+    #     x = np.unique(x, axis=0)
+    #     repeats += 1
     # --------------------------------------------------------------------------
     # Replacing duplicates with random individuals from parent_d_1
-    asnumpy_parent_d_1 = cp.asnumpy(parent_d_1) # copy parent_d_1 to host
-    repeats = 0
-    while x.shape[0] < popsize:
-        if repeats >= popsize-1:
-            break
+    # asnumpy_parent_d_1 = cp.asnumpy(parent_d_1) # copy parent_d_1 to host
+    # repeats = 0
+    # while x.shape[0] < popsize:
+    #     if repeats >= popsize-1:
+    #         break
             
-        rndm = random.randint(0, popsize-1)
-        x = np.append(x, [asnumpy_parent_d_1[rndm,1:]], axis=0)       
-        x = np.unique(x, axis=0)
-        repeats += 1
+    #     rndm = random.randint(0, popsize-1)
+    #     x = np.append(x, [asnumpy_parent_d_1[rndm,1:]], axis=0)       
+    #     x = np.unique(x, axis=0)
+    #     repeats += 1
     # --------------------------------------------------------------------------
     # Replacing duplicates with random individuals from parent_d_2
     asnumpy_parent_d_2 = cp.asnumpy(parent_d_2) # copy parent_d_1 to host
@@ -868,38 +854,38 @@ while count <= generations:
 
     # Shuffle the population after a certain number of generations without improvement 
     assign_child_1 = False
-    if count_index >= 5000 and count%last_shuffle == 0:
-        last_shuffle *= 2.5
-        count_index = 0
-        r = 1
-        #r = random.randint(1, 2)     
-        print('\nCaught possible early convergence (%d)'%r)
-        print('Shuffling population\n')
-        pop_d[0,:] = pop_d[pop_d[:,-1].argmin()]
+    # if count_index >= 5000 and count%last_shuffle == 0:
+    #     last_shuffle *= 2.5
+    #     count_index = 0
+    #     r = 1
+    #     #r = random.randint(1, 2)     
+    #     print('\nCaught possible early convergence (%d)'%r)
+    #     print('Shuffling population\n')
+    #     pop_d[0,:] = pop_d[pop_d[:,-1].argmin()]
 
-        for individual in pop_d[1:,:]:
-            cp.random.shuffle(individual[2:-1])
+    #     for individual in pop_d[1:,:]:
+    #         cp.random.shuffle(individual[2:-1])
         
-        assign_child_1 = True # Force child 1 to participate in every cross over after shuffling
+    #     assign_child_1 = True # Force child 1 to participate in every cross over after shuffling
         
-        # Adjust population after shuffling       
-        find_duplicates[blocks, threads_per_block](pop_d, r_flag)
+    #     # Adjust population after shuffling       
+    #     find_duplicates[blocks, threads_per_block](pop_d, r_flag)
 
-        find_missing_nodes[blocks, threads_per_block](r_flag, data_d, missing_d, pop_d)
+    #     find_missing_nodes[blocks, threads_per_block](r_flag, data_d, missing_d, pop_d)
         
-        add_missing_nodes[blocks, threads_per_block](r_flag, data_d, missing_d, pop_d)
+    #     add_missing_nodes[blocks, threads_per_block](r_flag, data_d, missing_d, pop_d)
 
-        shift_r_flag[blocks, threads_per_block](r_flag, vrp_capacity, data_d, pop_d)
+    #     shift_r_flag[blocks, threads_per_block](r_flag, vrp_capacity, data_d, pop_d)
 
-        cap_adjust[blocks, threads_per_block](r_flag, vrp_capacity, data_d, pop_d)
+    #     cap_adjust[blocks, threads_per_block](r_flag, vrp_capacity, data_d, pop_d)
 
-        cleanup_r_flag[blocks, threads_per_block](r_flag, pop_d)
+    #     cleanup_r_flag[blocks, threads_per_block](r_flag, pop_d)
 
     if count == 1:
         print('At first generation, Best: %d,'%minimum_cost, 'Worst: %d'%worst_cost, \
             'delta: %d'%delta, 'Avg: %.2f'%average)
         # print('POP:', pop_d, end='\n-----------\n')
-    elif (count+1)%500 == 0:
+    elif (count+1)%100 == 0:
         print('After %d generations, Best: %d,'%(count+1, minimum_cost), 'Worst: %d'%worst_cost, \
             'delta: %d'%delta, 'Avg: %.2f'%average)
     # elif count == generations:
