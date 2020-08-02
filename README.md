@@ -1,7 +1,7 @@
 # An Improved GPU-Accelerated Heuristic Technique Applied to the Capacitated Vehicle Routing Problem
 
 This is the repository hosting the source code of the GPU implementation of the paper:
-Marwan F. Abdelatti and Manbir S. Sodhi. 2020. An Improved GPU-Accelerated Heuristic Technique Applied to the Capacitated Vehicle Routing Problem. _In Proceedings of the Genetic and Evolutionary Computation Conference 2020 (GECCO ’20). ACM, New York, NY, USA, 9 pages._
+Marwan F. Abdelatti and Manbir S. Sodhi. 2020. An Improved GPU-Accelerated Heuristic Technique Applied to the Capacitated Vehicle Routing Problem. _In Proceedings of the Genetic and Evolutionary Computation Conference 2020 (GECCO ’20). ACM, New York, NY, USA, 9 pages._ You can access the paper from [this link.](https://dl.acm.org/doi/pdf/10.1145/3377930.3390159?casa_token=1svTNWgfQ-0AAAAA:Lwv63kPOpBMb40Wb7Pyn8YpnMYVgJLc7xycLJjpT_T0IXRQ9RLoOvnbNssZEqERN8beoM_FY-jB-)
 
 In this work, an improved genetic algorithm is designed to be entirely executed on an NVIDIA GPU, taking advantage of the special CUDA GPU architecture to solving the CVRP. By distributing array elements over the GPU grid and using GPU kernel functions, the proposed algorithm successfully provides high-quality solutions within reasonable computational times, and near-optimal solutions for smaller benchmark problems. The algorithm entirely runs on an NVIDIA GPU.
 ## Getting Started
