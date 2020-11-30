@@ -12,7 +12,7 @@ These instructions will get you a copy of the project up and running on your loc
 
 #### Hardware
 
-To run the algorithm successfully, An NVIDIA GPU of Pascal or Turing architecture with 6+ GB of shared memory (e.g., NVIDIA RTX 2080) is required.
+To run the algorithm successfully, An NVIDIA GPU of Pascal, Turing, or Ampere architecture with 6+ GB of shared memory (e.g., NVIDIA RTX 2080) is required.
 #### Software libraries
 
 The following software and libraries are essintial to run the algorithm:
