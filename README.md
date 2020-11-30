@@ -6,7 +6,7 @@ Marwan F. Abdelatti and Manbir S. Sodhi. 2020. An Improved GPU-Accelerated Heuri
 In this work, an improved genetic algorithm is designed to be entirely executed on an NVIDIA GPU, taking advantage of the special CUDA GPU architecture to solving the CVRP. By distributing array elements over the GPU grid and using GPU kernel functions, the proposed algorithm successfully provides high-quality solutions within reasonable computational times, and near-optimal solutions for smaller benchmark problems. The algorithm entirely runs on an NVIDIA GPU.
 ## Getting Started
 
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
+These instructions will get you a copy of the project up and running on your local machine for development and testing purposes.
 
 ### Prerequisites
 
