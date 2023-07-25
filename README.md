@@ -1,3 +1,9 @@
+##An improved version of this algorithm can be found at the link below:##
+(https://github.com/MarwanAbdelatti/GA_VRP_mod/tree/master)
+##The Multi-GPU implementation of this algorithm is also available at:##
+(https://github.com/MarwanAbdelatti/GA_VRP_mGPU) 
+##For the research paper:##
+(https://ieeexplore.ieee.org/abstract/document/9926363)
 # An Improved GPU-Accelerated Heuristic Technique Applied to the Capacitated Vehicle Routing Problem
 
 This is the repository hosting the source code of the GPU implementation of the paper:
